@@ -14,8 +14,11 @@ decisions behind it.
 1. Create a free project at [supabase.com](https://supabase.com).
 2. In **SQL Editor**, paste and run
    `supabase/migrations/20261114000000_init.sql`.
-3. In **Project Settings → API**, note the **Project URL** and the
-   **anon / publishable** key.
+3. Click **Connect** at the top of the dashboard (or open **Project Settings →
+   Data API** and **API Keys**) and note:
+   - the **Project URL**, `https://<project-ref>.supabase.co`;
+   - the **Publishable key**, `sb_publishable_…`. The legacy anon key also
+     works.
 4. In **Authentication → URL Configuration**:
    - Site URL: `https://<your-github-user>.github.io/legend-lore/`
    - Redirect URLs: add `https://<your-github-user>.github.io/legend-lore/**`
@@ -29,22 +32,31 @@ decisions behind it.
 2. In Supabase, **Authentication → Providers → Discord**: enable it and paste
    the Discord client ID and secret.
 
-### 3. Email codes
+### 3. Email codes (optional)
+
+Email login is hidden unless the `PUBLIC_EMAIL_LOGIN` variable is `true`. To
+turn it on:
 
 1. **Authentication → Emails → Templates → Magic Link**: include
    `{{ .Token }}` in the body so the email contains a code, e.g.
    `Your Legend Lore code is {{ .Token }}`.
 2. **Authentication → Emails → SMTP Settings**: configure a free SMTP provider
    (e.g. Resend or Brevo). Supabase's built-in sender is for testing only.
+3. Add a GitHub repository variable `PUBLIC_EMAIL_LOGIN` = `true`.
 
 ### 4. GitHub
 
 1. **Settings → Pages → Build and deployment → Source**: *GitHub Actions*.
-2. **Settings → Secrets and variables → Actions → Variables**, add:
-   - `PUBLIC_SUPABASE_URL`
-   - `PUBLIC_SUPABASE_ANON_KEY`
+   Ignore the suggested Jekyll / Static HTML starter workflows: this repo
+   already has its own in `.github/workflows/deploy.yml`.
+2. **Settings → Secrets and variables → Actions → Variables → Repository
+   variables**, add:
+   - `PUBLIC_SUPABASE_URL`: the Project URL
+   - `PUBLIC_SUPABASE_ANON_KEY`: the publishable key
 
-   These are public values, so they go under *Variables*, not *Secrets*.
+   These are public values, so they go under *Variables*, not *Secrets*. Use
+   repository variables, not environment variables: the build job doesn't run
+   in an environment, so it can't see environment variables.
 3. Push to `main`. The **Deploy to GitHub Pages** workflow builds and
    publishes the site. **Keep Supabase awake** runs every three days.
 

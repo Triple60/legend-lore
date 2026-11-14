@@ -33,6 +33,7 @@ jobs:
           # Public values (Settings → Secrets and variables → Actions → Variables).
           PUBLIC_SUPABASE_URL: ${{ vars.PUBLIC_SUPABASE_URL }}
           PUBLIC_SUPABASE_ANON_KEY: ${{ vars.PUBLIC_SUPABASE_ANON_KEY }}
+          PUBLIC_EMAIL_LOGIN: ${{ vars.PUBLIC_EMAIL_LOGIN }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: build

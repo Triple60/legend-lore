@@ -24,6 +24,6 @@ jobs:
           # runs a real query against Postgres, which is what counts.
           status=$(curl -sS -o /dev/null -w '%{http_code}' \
             "$URL/rest/v1/campaigns?select=id&limit=1" \
-            -H "apikey: $KEY" -H "Authorization: Bearer $KEY")
+            -H "apikey: $KEY")
           echo "HTTP $status"
           test "$status" = 200

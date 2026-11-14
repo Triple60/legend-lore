@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import { PUBLIC_EMAIL_LOGIN } from '$app/env/public';
 	import { page } from '$app/state';
 	import { auth } from '#lib/session.svelte.ts';
 	import { supabase } from '#lib/supabase.ts';
@@ -54,30 +55,34 @@
 
 <div class="card login">
 	<h1>Sign in</h1>
-	<p class="muted">No passwords here: sign in with Discord, or get a one-time code by email.</p>
+	<p class="muted">
+		No passwords here: sign in with Discord{PUBLIC_EMAIL_LOGIN ? ', or get a one-time code by email' : ''}.
+	</p>
 
 	<button class="discord" onclick={discord}>Continue with Discord</button>
 
-	<div class="or"><span>or</span></div>
+	{#if PUBLIC_EMAIL_LOGIN}
+		<div class="or"><span>or</span></div>
 
-	{#if !sent}
-		<form onsubmit={sendCode}>
-			<input type="email" bind:value={email} placeholder="you@example.com" required autocomplete="email" />
-			<button type="submit" disabled={busy}>{busy ? 'Sending…' : 'Email me a code'}</button>
-		</form>
-	{:else}
-		<form onsubmit={verify}>
-			<p class="muted">We sent a code to <strong>{email}</strong>.</p>
-			<input
-				bind:value={code}
-				inputmode="numeric"
-				autocomplete="one-time-code"
-				placeholder="Code from the email"
-				required
-			/>
-			<button type="submit" disabled={busy}>{busy ? 'Checking…' : 'Sign in'}</button>
-			<button type="button" class="ghost" onclick={() => ((sent = false), (code = ''))}>Use a different email</button>
-		</form>
+		{#if !sent}
+			<form onsubmit={sendCode}>
+				<input type="email" bind:value={email} placeholder="you@example.com" required autocomplete="email" />
+				<button type="submit" disabled={busy}>{busy ? 'Sending…' : 'Email me a code'}</button>
+			</form>
+		{:else}
+			<form onsubmit={verify}>
+				<p class="muted">We sent a code to <strong>{email}</strong>.</p>
+				<input
+					bind:value={code}
+					inputmode="numeric"
+					autocomplete="one-time-code"
+					placeholder="Code from the email"
+					required
+				/>
+				<button type="submit" disabled={busy}>{busy ? 'Checking…' : 'Sign in'}</button>
+				<button type="button" class="ghost" onclick={() => ((sent = false), (code = ''))}>Use a different email</button>
+			</form>
+		{/if}
 	{/if}
 
 	{#if error}<p class="error">{error}</p>{/if}

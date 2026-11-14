@@ -16,6 +16,12 @@ export const variables = defineEnvVars({
 		public: true,
 		static: true,
 		schema: optional,
-		description: 'Supabase anon (public) API key'
+		description: 'Supabase publishable key (sb_publishable_…) or legacy anon key'
+	},
+	PUBLIC_EMAIL_LOGIN: {
+		public: true,
+		static: true,
+		schema: (value: string | undefined) => value === 'true',
+		description: 'Set to "true" to offer email one-time-code login (needs SMTP set up in Supabase)'
 	}
 });
