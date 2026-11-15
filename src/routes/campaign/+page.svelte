@@ -196,6 +196,16 @@
 		else if (query) query = '';
 	}
 
+	/**
+	 * A click on empty map: close an open menu or pop-up first; otherwise clear
+	 * the selection (and its highlight). A node with an edit in progress stays
+	 * open so the edit isn't lost.
+	 */
+	function clickBackground() {
+		if (menu || quick) menu = quick = null;
+		else if (selectedId && store?.editing !== selectedId) select(null);
+	}
+
 	function onSearchKey(e: KeyboardEvent) {
 		if (e.key === 'Enter' && hits[0]) select(hits[0].node.id);
 		if (e.key === 'Escape') query = '';
@@ -333,7 +343,7 @@
 				{selectedId}
 				{highlight}
 				onselect={select}
-				onbackground={() => (menu = quick = null)}
+				onbackground={clickBackground}
 				onmenu={(at) => {
 					quick = null;
 					menu = at;
