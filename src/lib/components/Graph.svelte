@@ -2,7 +2,7 @@
 	import cytoscape, { type Core, type ElementDefinition, type Position } from 'cytoscape';
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import { applyGraphFocus } from '#lib/graph-focus.ts';
-	import { GraphPhysics } from '#lib/graph-physics.ts';
+	import { estimateLabelWidth, GraphPhysics, LABEL_MAX_WIDTH } from '#lib/graph-physics.ts';
 	import { prefersReducedMotion } from '#lib/ui/place.ts';
 	import type { LoreEdge, LoreNode, NodeType } from '#lib/types.ts';
 	import { theme } from '#lib/theme.svelte.ts';
@@ -176,6 +176,23 @@
 		if (n && n.nonempty()) cy?.animate({ center: { eles: n }, zoom: Math.max(cy.zoom(), 1) }, { duration: 300 });
 	}
 
+	// Edge annotations are drawn at this size, in Cytoscape's default font.
+	const EDGE_FONT = '10px "Helvetica Neue", Helvetica, sans-serif';
+	let measureCtx: CanvasRenderingContext2D | null | undefined;
+	/** How wide an annotation is drawn, so its connection can be long enough. */
+	function labelWidth(text: string): number {
+		if (measureCtx === undefined) {
+			try {
+				measureCtx = document.createElement('canvas').getContext('2d');
+			} catch {
+				measureCtx = null;
+			}
+			if (measureCtx) measureCtx.font = EDGE_FONT;
+		}
+		const w = measureCtx?.measureText(text).width;
+		return typeof w === 'number' && w > 0 ? w : estimateLabelWidth(text);
+	}
+
 	// Map styles, built from the current colour tokens. Called again whenever
 	// the light/dark theme changes, since Cytoscape draws on a canvas and can't
 	// read CSS variables itself.
@@ -212,6 +229,9 @@
 					'font-size': 10,
 					color: muted,
 					'text-rotation': 'autorotate',
+					// Long annotations wrap; their connection grows to fit (graph-physics.ts).
+					'text-wrap': 'wrap',
+					'text-max-width': `${LABEL_MAX_WIDTH}px`,
 					'text-background-color': bg,
 					'text-background-opacity': 0.85,
 					'text-background-padding': '2px'
@@ -235,6 +255,7 @@
 		});
 		physics = new GraphPhysics(cy, {
 			reducedMotion: prefersReducedMotion,
+			labelWidth,
 			onrest: () => {
 				savePositions();
 				if (fitOnRest) {
@@ -272,10 +293,22 @@
 		cy?.destroy();
 	});
 
-	// Recolour the map when the theme flips.
+	// Recolour the map when the theme flips. While the page's colours fade
+	// (see theme.svelte.ts), follow them frame by frame, since the canvas
+	// can't transition on its own.
 	$effect(() => {
 		void theme.current;
+		const fading = theme.fading;
 		untrack(() => cy?.style(graphStyle()));
+		if (!fading) return;
+		let frame = requestAnimationFrame(function step() {
+			cy?.style(graphStyle());
+			frame = requestAnimationFrame(step);
+		});
+		return () => {
+			cancelAnimationFrame(frame);
+			cy?.style(graphStyle());
+		};
 	});
 
 	// Sync Svelte state → Cytoscape elements, adding/removing/updating in place

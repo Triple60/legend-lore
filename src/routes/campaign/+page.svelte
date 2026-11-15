@@ -7,6 +7,8 @@
 	import NodeForm from '#lib/components/NodeForm.svelte';
 	import NodePanel from '#lib/components/NodePanel.svelte';
 	import NodeQuickForm from '#lib/components/NodeQuickForm.svelte';
+	import TypeEditor from '#lib/components/TypeEditor.svelte';
+	import type { NodeType } from '#lib/types.ts';
 	import Menu from '#lib/ui/Menu.svelte';
 	import Panel from '#lib/ui/Panel.svelte';
 	import Popover from '#lib/ui/Popover.svelte';
@@ -240,8 +242,6 @@
 	// --- Sidebar tools (shown when nothing is selected) ---
 	let inviteUrl = $state<string | null>(null);
 	let toolError = $state<string | null>(null);
-	let newTypeLabel = $state('');
-	let newTypeColor = $state('#59a14f');
 
 	async function invite() {
 		toolError = null;
@@ -254,14 +254,38 @@
 		}
 	}
 
-	async function addType(e: SubmitEvent) {
-		e.preventDefault();
-		toolError = null;
+	// --- Node types: add from the "+" after the last one; rename by
+	// double-click, right-click or F2 on a type ---
+	let typeEditor = $state<{ anchor: HTMLElement; type: NodeType | null } | null>(null);
+	let typeSaving = $state(false);
+	let typeError = $state<string | null>(null);
+
+	function openTypeEditor(anchor: HTMLElement, type: NodeType | null) {
+		typeError = null;
+		typeEditor = typeEditor?.anchor === anchor ? null : { anchor, type };
+	}
+
+	async function saveType(label: string, color: string) {
+		if (!store || !typeEditor) return;
+		const { type } = typeEditor;
+		typeSaving = true;
+		typeError = null;
 		try {
-			await store!.createType(newTypeLabel.trim(), newTypeColor);
-			newTypeLabel = '';
-		} catch (err) {
-			toolError = (err as Error).message;
+			if (type) await store.updateType(type, { label, color });
+			else await store.createType(label, color);
+			typeEditor = null;
+		} catch (e) {
+			const msg = (e as Error).message;
+			typeError = /duplicate|unique/i.test(msg) ? `There's already a type called “${label}”.` : msg;
+		} finally {
+			typeSaving = false;
+		}
+	}
+
+	function onTypeKey(e: KeyboardEvent, t: NodeType) {
+		if (e.key === 'F2') {
+			e.preventDefault();
+			openTypeEditor(e.currentTarget as HTMLElement, t);
 		}
 	}
 
@@ -300,9 +324,16 @@
 					{#each hits as h (h.node.id)}
 						<li>
 							<button class="ghost" onclick={() => select(h.node.id)}>
-								<span class="dot" style:background={store.types[h.node.type_id]?.color}></span>
-								{h.node.name}
-								<span class="muted">· {h.why}</span>
+								<span class="hit-head">
+									<span class="dot" style:background={store.types[h.node.type_id]?.color}></span>
+									<span class="hit-name">{h.node.name}</span>
+									<span class="muted hit-why">{store.types[h.node.type_id]?.label ?? ''} · {h.why}</span>
+								</span>
+								{#if h.preview.length}
+									<span class="hit-preview"
+										>{#each h.preview as seg, i (i)}{#if seg.hit}<mark>{seg.text}</mark>{:else}{seg.text}{/if}{/each}</span
+									>
+								{/if}
 							</button>
 						</li>
 					{:else}
@@ -316,12 +347,28 @@
 				<button
 					class="tag"
 					class:off={hiddenTypes.includes(t.id)}
+					aria-pressed={!hiddenTypes.includes(t.id)}
 					onclick={() => toggleType(t.id)}
-					title={hiddenTypes.includes(t.id) ? `Show ${t.label}` : `Hide ${t.label}`}
+					ondblclick={(e) => {
+						// The double-click's two clicks toggled it twice, so it's as it was.
+						openTypeEditor(e.currentTarget, t);
+					}}
+					oncontextmenu={(e) => {
+						e.preventDefault();
+						openTypeEditor(e.currentTarget, t);
+					}}
+					onkeydown={(e) => onTypeKey(e, t)}
+					title={`${hiddenTypes.includes(t.id) ? 'Show' : 'Hide'} ${t.label} · double-click or right-click to rename`}
 				>
 					<span class="dot" style:background={t.color}></span>{t.label}
 				</button>
 			{/each}
+			<button
+				class="tag add-type"
+				onclick={(e) => openTypeEditor(e.currentTarget, null)}
+				aria-label="Add a node type"
+				title="Add a node type">+</button
+			>
 			<label class="asof">
 				As of session
 				<input type="number" min="0" bind:value={asOfSession} placeholder="all" />
@@ -399,13 +446,6 @@
 							{:else}
 								<p class="muted">No tags yet.</p>
 							{/if}
-
-							<h3>Node types</h3>
-							<form class="add-type" onsubmit={addType}>
-								<input type="color" bind:value={newTypeColor} aria-label="Colour" />
-								<input bind:value={newTypeLabel} placeholder="e.g. Faction" required maxlength="50" />
-								<button type="submit">Add</button>
-							</form>
 
 							<h3>Keyboard shortcuts</h3>
 							<label class="toggle">
@@ -485,6 +525,21 @@
 	</div>
 {/if}
 
+{#if typeEditor && store}
+	{#key typeEditor}
+		<TypeEditor
+			anchor={typeEditor.anchor}
+			heading={typeEditor.type ? `Rename “${typeEditor.type.label}”` : 'New node type'}
+			initial={typeEditor.type ? { label: typeEditor.type.label, color: typeEditor.type.color } : undefined}
+			submitLabel={typeEditor.type ? 'Save' : 'Add'}
+			saving={typeSaving}
+			error={typeError}
+			onsave={saveType}
+			onclose={() => (typeEditor = null)}
+		/>
+	{/key}
+{/if}
+
 <svelte:window onkeydown={onWindowKey} />
 
 <style>
@@ -525,8 +580,43 @@
 		text-align: left;
 		border: none;
 		display: flex;
+		flex-direction: column;
+		align-items: stretch;
+		gap: 0.15rem;
+	}
+	.hit-head {
+		display: flex;
 		align-items: center;
 		gap: 0.4rem;
+		min-width: 0;
+	}
+	.hit-name {
+		font-weight: 600;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.hit-why {
+		font-size: 0.75rem;
+		margin-left: auto;
+		flex: none;
+	}
+	.hit-preview {
+		font-size: 0.8rem;
+		color: var(--muted);
+		padding-left: 1.05rem;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+		overflow-wrap: anywhere;
+	}
+	.hit-preview mark {
+		background: color-mix(in srgb, var(--accent) 30%, transparent);
+		color: var(--text);
+		border-radius: 2px;
+		padding: 0 1px;
 	}
 	.results li.muted {
 		padding: 0.4rem 0.6rem;
@@ -671,17 +761,11 @@
 		flex-wrap: wrap;
 		gap: 0.35rem;
 	}
-	.add-type {
-		display: flex;
-		gap: 0.4rem;
-	}
-	.add-type input[type='color'] {
-		width: 2.5rem;
-		padding: 0.1rem;
-	}
-	.add-type input:not([type='color']) {
-		flex: 1;
-		min-width: 0;
+	.filters .add-type {
+		justify-content: center;
+		min-width: 1.9rem;
+		border-style: dashed;
+		color: var(--muted);
 	}
 	.trash {
 		list-style: none;

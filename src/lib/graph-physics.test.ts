@@ -1,6 +1,6 @@
 import cytoscape, { type Core } from 'cytoscape';
 import { describe, expect, it, vi } from 'vitest';
-import { GraphPhysics } from './graph-physics.ts';
+import { ARROW_CLEARANCE, BASE_LINK_LENGTH, GraphPhysics, LABEL_MAX_WIDTH, linkLength } from './graph-physics.ts';
 
 // Reduced motion makes the simulation settle synchronously, so tests can
 // check where things end up without waiting on animation frames.
@@ -95,5 +95,32 @@ describe('GraphPhysics', () => {
 		a.position({ x: 999, y: 999 });
 		a.emit('drag').emit('free');
 		expect(onrest).not.toHaveBeenCalled();
+	});
+
+	it('stretches a connection to fit a long annotation', () => {
+		const { cy, physics } = setup();
+		physics.sync({ fresh: true });
+		const short = dist(cy, 'a', 'b');
+		cy.getElementById('ab').data('label', 'swore an oath of vengeance upon the house of');
+		physics.sync();
+		expect(dist(cy, 'a', 'b')).toBeGreaterThan(short + 60);
+	});
+});
+
+describe('linkLength', () => {
+	it('keeps the base length for short or missing annotations', () => {
+		expect(linkLength(0)).toBe(BASE_LINK_LENGTH);
+		expect(linkLength(20)).toBe(BASE_LINK_LENGTH);
+	});
+
+	it('leaves clear arrow on both sides of a long annotation', () => {
+		const len = linkLength(150);
+		expect(len).toBeGreaterThan(BASE_LINK_LENGTH);
+		// Between the two node edges (26px nodes) there's room for the label and both clearances.
+		expect(len - 26).toBeGreaterThanOrEqual(150 + 2 * ARROW_CLEARANCE);
+	});
+
+	it('stops growing once the annotation wraps', () => {
+		expect(linkLength(5000)).toBe(linkLength(LABEL_MAX_WIDTH));
 	});
 });

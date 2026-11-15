@@ -2,6 +2,7 @@
 	import type { NodeInput } from '#lib/campaign.svelte.ts';
 	import { splitList } from '#lib/lists.ts';
 	import type { NodeType } from '#lib/types.ts';
+	import { autogrow } from '#lib/ui/autogrow.ts';
 	import { onMount, untrack } from 'svelte';
 
 	interface Props {
@@ -74,7 +75,7 @@
 	</label>
 	<label>
 		Notes <span class="hint">optional · Markdown; link nodes with [[Name]]</span>
-		<textarea bind:value={notes} rows="12"></textarea>
+		<textarea bind:value={notes} rows="8" use:autogrow></textarea>
 	</label>
 	<div class="actions">
 		<button type="button" class="ghost" onclick={oncancel} disabled={saving}>Cancel</button>
@@ -115,7 +116,8 @@
 	}
 	textarea {
 		font-family: var(--mono);
-		resize: vertical;
+		resize: none;
+		line-height: 1.45;
 	}
 	.actions {
 		display: flex;

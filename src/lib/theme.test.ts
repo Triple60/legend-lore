@@ -30,4 +30,24 @@ describe('theme', () => {
 		const { theme } = await import('./theme.svelte.ts');
 		expect(theme.current).toBe('light');
 	});
+
+	it('fades the colours for a moment when switching', async () => {
+		vi.useFakeTimers();
+		const { theme, FADING_CLASS, THEME_FADE_MS } = await import('./theme.svelte.ts');
+		theme.toggle();
+		expect(document.documentElement.classList.contains(FADING_CLASS)).toBe(true);
+		expect(theme.fading).toBe(true);
+		vi.advanceTimersByTime(THEME_FADE_MS + 200);
+		expect(document.documentElement.classList.contains(FADING_CLASS)).toBe(false);
+		expect(theme.fading).toBe(false);
+		vi.useRealTimers();
+	});
+
+	it('switches instantly under reduced motion', async () => {
+		vi.stubGlobal('matchMedia', (q: string) => ({ matches: q.includes('reduce'), addEventListener() {} }));
+		const { theme, FADING_CLASS } = await import('./theme.svelte.ts');
+		theme.toggle();
+		expect(document.documentElement.classList.contains(FADING_CLASS)).toBe(false);
+		vi.unstubAllGlobals();
+	});
 });

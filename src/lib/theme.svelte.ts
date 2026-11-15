@@ -10,6 +10,22 @@ export type Theme = 'light' | 'dark';
 
 export const STORAGE_KEY = 'legend-lore:theme';
 
+/**
+ * How long a switch between light and dark fades for. Must match
+ * `--theme-fade` in tokens.css. Reduced motion switches instantly.
+ */
+export const THEME_FADE_MS = 2000;
+/** Class on <html> while the colours fade (see tokens.css). */
+export const FADING_CLASS = 'theme-fading';
+
+function reducedMotion(): boolean {
+	try {
+		return matchMedia('(prefers-reduced-motion: reduce)').matches;
+	} catch {
+		return false;
+	}
+}
+
 function systemTheme(): Theme {
 	try {
 		return matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
@@ -31,6 +47,9 @@ class ThemeState {
 	/** A theme the person picked, or null to follow the system. */
 	#chosen = $state<Theme | null>(savedTheme());
 	#system = $state<Theme>(systemTheme());
+	/** True while a switch is fading in; the map follows the fade while it is. */
+	fading = $state(false);
+	#fadeTimer: ReturnType<typeof setTimeout> | undefined;
 
 	constructor() {
 		try {
@@ -48,6 +67,7 @@ class ThemeState {
 	}
 
 	set(theme: Theme) {
+		if (theme !== this.current) this.#fade();
 		this.#chosen = theme;
 		document.documentElement.dataset.theme = theme;
 		try {
@@ -55,6 +75,19 @@ class ThemeState {
 		} catch {
 			/* storage unavailable: the choice lasts until the tab closes */
 		}
+	}
+
+	/** Let the colour tokens transition for a moment, then switch them off again. */
+	#fade() {
+		if (reducedMotion()) return;
+		const root = document.documentElement;
+		clearTimeout(this.#fadeTimer);
+		root.classList.add(FADING_CLASS);
+		this.fading = true;
+		this.#fadeTimer = setTimeout(() => {
+			root.classList.remove(FADING_CLASS);
+			this.fading = false;
+		}, THEME_FADE_MS + 100);
 	}
 
 	toggle() {

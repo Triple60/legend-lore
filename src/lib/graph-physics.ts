@@ -26,10 +26,37 @@ import {
 interface SimNode extends SimulationNodeDatum {
 	id: string;
 }
-type SimLink = SimulationLinkDatum<SimNode>;
+interface SimLink extends SimulationLinkDatum<SimNode> {
+	length: number;
+}
 
 /** How hard a change wakes the simulation (d3 "alpha", 0–1). */
 const WAKE = { fresh: 0.8, change: 0.25, drag: 0.3 } as const;
+/** The spring length of a connection with a short (or no) annotation. */
+export const BASE_LINK_LENGTH = 110;
+/** Node radius on the map (nodes are 26px wide). */
+const NODE_RADIUS = 13;
+/**
+ * Bare arrow left showing on each side of an annotation, so a long label
+ * never hides the line or its arrowhead.
+ */
+export const ARROW_CLEARANCE = 28;
+/** Widest an annotation gets before it wraps onto more lines (see Graph.svelte). */
+export const LABEL_MAX_WIDTH = 220;
+
+/**
+ * Spring length for a connection whose annotation is `labelWidth` pixels
+ * wide: at least the base length, and long enough that the label plus clear
+ * arrow on both sides fits between the two nodes.
+ */
+export function linkLength(labelWidth: number): number {
+	const label = Math.min(Math.max(0, labelWidth), LABEL_MAX_WIDTH);
+	return Math.max(BASE_LINK_LENGTH, label + 2 * (ARROW_CLEARANCE + NODE_RADIUS));
+}
+
+/** A rough label width, for when text can't be measured (no canvas). */
+export const estimateLabelWidth = (text: string) => text.length * 5.6;
+
 /** Ticks to run in one go when settling without animation. */
 const INSTANT_TICKS = 300;
 
@@ -38,6 +65,8 @@ export interface PhysicsOptions {
 	reducedMotion?: () => boolean;
 	/** Called each time the map comes to rest. */
 	onrest?: () => void;
+	/** Width in pixels of an edge annotation as drawn on the map. */
+	labelWidth?: (text: string) => number;
 }
 
 export class GraphPhysics {
@@ -45,17 +74,22 @@ export class GraphPhysics {
 	#sim: Simulation<SimNode, SimLink>;
 	#links = forceLink<SimNode, SimLink>()
 		.id((d) => d.id)
-		.distance(110)
+		.distance((l) => l.length)
 		.strength(0.4);
 	#byId = new Map<string, SimNode>();
 	#edgeKey = '';
 	#reduced: () => boolean;
 	#onrest: () => void;
+	#labelWidth: (text: string) => number;
 	/** Nodes being dragged right now. */
 	#dragging = new Set<string>();
 
-	constructor(cy: Core, { reducedMotion = () => false, onrest = () => {} }: PhysicsOptions = {}) {
+	constructor(
+		cy: Core,
+		{ reducedMotion = () => false, onrest = () => {}, labelWidth = estimateLabelWidth }: PhysicsOptions = {}
+	) {
 		this.#cy = cy;
+		this.#labelWidth = labelWidth;
 		this.#reduced = reducedMotion;
 		this.#onrest = onrest;
 		this.#sim = forceSimulation<SimNode>([])
@@ -100,9 +134,11 @@ export class GraphPhysics {
 		cy.edges().forEach((e) => {
 			const source = e.source().id();
 			const target = e.target().id();
-			if (source !== target) links.push({ source, target });
+			const label = String(e.data('label') ?? '');
+			const length = linkLength(label ? this.#labelWidth(label) : 0);
+			if (source !== target) links.push({ source, target, length });
 		});
-		const edgeKey = links.map((l) => `${l.source}>${l.target}`).join('|');
+		const edgeKey = links.map((l) => `${l.source}>${l.target}:${Math.round(l.length)}`).join('|');
 		if (edgeKey !== this.#edgeKey) changed = true;
 		this.#edgeKey = edgeKey;
 
