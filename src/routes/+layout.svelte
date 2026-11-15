@@ -1,5 +1,6 @@
 <script lang="ts">
 	import favicon from '#lib/assets/favicon.svg';
+	import '#lib/ui/tokens.css';
 	import { resolve } from '$app/paths';
 	import { auth } from '#lib/session.svelte.ts';
 	import { isConfigured, supabase } from '#lib/supabase.ts';
@@ -44,32 +45,6 @@
 </div>
 
 <style>
-	:global(:root) {
-		--bg: #15131a;
-		--panel: #1f1c26;
-		--border: #34303f;
-		--text: #e8e4ef;
-		--muted: #9a93a8;
-		--accent: #d4a24c;
-		--danger: #e0605a;
-		--input: #26222f;
-		--mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-		font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-		color: var(--text);
-		background: var(--bg);
-	}
-	@media (prefers-color-scheme: light) {
-		:global(:root) {
-			--bg: #f7f4ee;
-			--panel: #ffffff;
-			--border: #ddd6c8;
-			--text: #2a2530;
-			--muted: #6f6878;
-			--accent: #9a6a12;
-			--danger: #b3322c;
-			--input: #fbf9f5;
-		}
-	}
 	:global(body) {
 		margin: 0;
 		background: var(--bg);

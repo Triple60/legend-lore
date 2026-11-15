@@ -1,0 +1,61 @@
+/*
+ * Legend Lore design tokens. Components read these instead of hard-coding
+ * colours, radii, shadows or timings, so the look can change in one place.
+ */
+:root {
+	/* Colour */
+	--bg: #15131a;
+	--panel: #1f1c26;
+	--border: #34303f;
+	--text: #e8e4ef;
+	--muted: #9a93a8;
+	--accent: #d4a24c;
+	--danger: #e0605a;
+	--input: #26222f;
+	--hover: rgba(255, 255, 255, 0.06);
+	/* Laid over a surface that sits underneath another (a covered panel). */
+	--scrim: rgba(8, 6, 12, 0.5);
+
+	/* Shape */
+	--radius-sm: 6px;
+	--radius: 10px;
+	--radius-lg: 14px;
+
+	/* Elevation: floating surfaces (panels, menus, popovers). */
+	--shadow-float: 0 10px 30px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
+
+	/* Space */
+	--gap-float: 0.75rem; /* between a floating surface and the edge of the screen */
+	--page-peek: 14px; /* how much of a covered panel shows past the one on top */
+
+	/* Motion */
+	--dur: 220ms;
+	--ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+	--mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+	font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+	color: var(--text);
+	background: var(--bg);
+}
+
+@media (prefers-color-scheme: light) {
+	:root {
+		--bg: #f7f4ee;
+		--panel: #ffffff;
+		--border: #ddd6c8;
+		--text: #2a2530;
+		--muted: #6f6878;
+		--accent: #9a6a12;
+		--danger: #b3322c;
+		--input: #fbf9f5;
+		--hover: rgba(0, 0, 0, 0.05);
+		--scrim: rgba(40, 32, 20, 0.22);
+		--shadow-float: 0 10px 30px rgba(60, 45, 20, 0.18), 0 2px 6px rgba(60, 45, 20, 0.12);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	:root {
+		--dur: 0ms;
+	}
+}
