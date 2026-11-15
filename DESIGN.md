@@ -8,7 +8,8 @@ nobody outside the campaign can see it.
 
 | Topic | Decision |
 |---|---|
-| Hosting | Static SvelteKit (Svelte 5) app on GitHub Pages, built by GitHub Actions. |
+| Hosting | Static SvelteKit (Svelte 5) app on GitHub Pages, built by GitHub Actions. Each branch also gets a demo build under `/preview/<branch>/`. |
+| Demo mode | `PUBLIC_DEMO=true` swaps the Supabase client for an in-memory one (`src/lib/demo/`) seeded with a sample campaign. It mimics the database triggers (stamps, versions, tag cleanup, revisions) but not row-level security. Resets on reload. |
 | Backend | Supabase free tier: Postgres, Auth, Realtime. No server code of our own. |
 | Security | Enforced entirely by Postgres row-level security (RLS). The anon key in the browser is public by design. |
 | Login | Discord OAuth, plus a one-time code by email. No passwords stored. (SMS was ruled out: it costs money per message on every provider.) |
@@ -23,7 +24,7 @@ nobody outside the campaign can see it.
 | History | Every change to a node or edge stores a full snapshot (database trigger). Undo = restore a snapshot as a new version. |
 | Deletion | Soft delete (`deleted_at`). Clients have no DELETE permission on nodes/edges. Deleted nodes go to a trash and can be restored; their edges hide and reappear with them. |
 | Concurrent edits | One editor per node at a time, via Supabase Presence (locks vanish automatically when a tab closes). Saves also check a `version` number, so a lost race fails loudly instead of overwriting. Live co-editing (Yjs) is a possible later upgrade. |
-| Layout | Automatic force-directed layout (Cytoscape.js `cose`). Positions are cached per browser so the map doesn't reshuffle between visits; new nodes appear next to a neighbour; a Re-layout button re-runs it. |
+| Layout | Live physics (d3-force, `src/lib/graph-physics.ts`): nodes repel, connections act as springs, dragging a node tugs its neighbours. It cools down and stops when idle, wakes on drags and graph changes, and settles instantly under reduced motion. Positions are per browser (localStorage) and never synced, so each person's map floats differently; only the data is shared. |
 | Search | Client-side over the whole campaign: name > alias > tag > notes; `#tag` filters by tag. Fine up to a few thousand nodes. |
 | DB pause | A scheduled GitHub Action pings the database every 3 days. GitHub disables scheduled workflows in public repos after 60 days with no commits; it emails a warning first, and one click re-enables it. |
 

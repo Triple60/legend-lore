@@ -23,5 +23,12 @@ export const variables = defineEnvVars({
 		static: true,
 		schema: (value: string | undefined) => value === 'true',
 		description: 'Set to "true" to offer email one-time-code login (needs SMTP set up in Supabase)'
+	},
+	PUBLIC_DEMO: {
+		public: true,
+		static: true,
+		schema: (value: string | undefined) => value === 'true',
+		description:
+			'Set to "true" for a demo build: no Supabase, an in-memory sample campaign that resets on refresh (used by branch previews)'
 	}
 });

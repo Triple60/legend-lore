@@ -3,7 +3,8 @@
 	import '#lib/ui/tokens.css';
 	import { resolve } from '$app/paths';
 	import { auth } from '#lib/session.svelte.ts';
-	import { isConfigured, supabase } from '#lib/supabase.ts';
+	import { theme } from '#lib/theme.svelte.ts';
+	import { isConfigured, isDemo, supabase } from '#lib/supabase.ts';
 	import { onMount } from 'svelte';
 	import type { LayoutProps } from './$types';
 
@@ -19,10 +20,25 @@
 <div class="app">
 	<nav>
 		<a class="brand" href={resolve('/')}>Legend Lore</a>
+		{#if isDemo}
+			<span class="demo" title="Changes stay in this tab and are lost when you reload the page.">
+				Demo · sample data, resets on reload
+			</span>
+		{/if}
 		<span class="spacer"></span>
+		<button
+			class="ghost small theme"
+			role="switch"
+			aria-checked={theme.current === 'dark'}
+			aria-label="Dark mode"
+			title={theme.current === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+			onclick={() => theme.toggle()}
+		>
+			<span aria-hidden="true">{theme.current === 'dark' ? '☾' : '☀'}</span>
+		</button>
 		{#if auth.user}
 			<span class="muted who">{auth.user.email ?? auth.user.user_metadata?.full_name}</span>
-			<button class="ghost small" onclick={() => supabase.auth.signOut()}>Sign out</button>
+			<button class="ghost small" onclick={() => supabase.auth.signOut()}>{isDemo ? 'Reset demo' : 'Sign out'}</button>
 		{/if}
 	</nav>
 
@@ -139,8 +155,24 @@
 		text-decoration: none;
 		letter-spacing: 0.02em;
 	}
+	.demo {
+		font-size: 0.75rem;
+		color: var(--muted);
+		border: 1px dashed var(--border);
+		border-radius: 999px;
+		padding: 0.1rem 0.6rem;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		min-width: 0;
+	}
 	.spacer {
 		flex: 1;
+	}
+	.theme {
+		min-width: 2rem;
+		font-size: 0.95rem;
+		line-height: 1.4;
 	}
 	.who {
 		font-size: 0.85rem;

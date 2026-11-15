@@ -165,8 +165,7 @@
 
 	const menuItems = (at: Point) => [
 		{ label: 'New node here', hint: shortcutsOn ? 'N' : undefined, onselect: () => quickAdd(at) },
-		{ label: 'Fit map to screen', onselect: () => graph?.fit() },
-		{ label: 'Re-layout', onselect: () => graph?.relayout() }
+		{ label: 'Fit map to screen', onselect: () => graph?.fit() }
 	];
 
 	// --- Keyboard shortcuts (see #lib/shortcuts.ts) ---
@@ -195,6 +194,16 @@
 		else if (selectedId && store?.editing === selectedId) store.endEdit();
 		else if (selectedId) select(null);
 		else if (query) query = '';
+	}
+
+	/**
+	 * A click on empty map: close an open menu or pop-up first; otherwise clear
+	 * the selection (and its highlight). A node with an edit in progress stays
+	 * open so the edit isn't lost.
+	 */
+	function clickBackground() {
+		if (menu || quick) menu = quick = null;
+		else if (selectedId && store?.editing !== selectedId) select(null);
 	}
 
 	function onSearchKey(e: KeyboardEvent) {
@@ -319,7 +328,6 @@
 			</label>
 		</div>
 		<div class="actions">
-			<button class="ghost" onclick={() => graph?.relayout()} title="Re-run automatic layout">Re-layout</button>
 			<button onclick={newNode} aria-keyshortcuts={shortcutsOn ? 'N' : undefined} title={shortcutsOn ? 'Shortcut: N' : undefined}>+ New node</button>
 		</div>
 	</div>
@@ -335,7 +343,7 @@
 				{selectedId}
 				{highlight}
 				onselect={select}
-				onbackground={() => (menu = quick = null)}
+				onbackground={clickBackground}
 				onmenu={(at) => {
 					quick = null;
 					menu = at;

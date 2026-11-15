@@ -2,7 +2,10 @@
 	import cytoscape, { type Core, type ElementDefinition, type Position } from 'cytoscape';
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import { applyGraphFocus } from '#lib/graph-focus.ts';
+	import { GraphPhysics } from '#lib/graph-physics.ts';
+	import { prefersReducedMotion } from '#lib/ui/place.ts';
 	import type { LoreEdge, LoreNode, NodeType } from '#lib/types.ts';
+	import { theme } from '#lib/theme.svelte.ts';
 
 	interface Props {
 		campaignId: string;
@@ -39,7 +42,10 @@
 
 	let container: HTMLDivElement;
 	let cy: Core | null = $state(null);
+	let physics: GraphPhysics | null = null;
 	let fitPending = true;
+	/** A brand-new map is still finding its shape: fit it once it settles. */
+	let fitOnRest = false;
 
 	// --- Inline label editor for an edge ---
 	let labelEdgeId = $state<string | null>(null);
@@ -85,8 +91,9 @@
 		if (labelPos) labelInput?.focus();
 	});
 
-	// Layout positions are remembered per browser so the map doesn't reshuffle
-	// between visits. This is a viewer convenience only; nothing depends on it.
+	// Positions are remembered per browser so the map doesn't reshuffle between
+	// visits. They are never synced: each person's map floats on its own, and
+	// only the campaign data is shared.
 	const posKey = () => `legend-lore:positions:${campaignId}`;
 	function loadPositions(): Record<string, Position> {
 		try {
@@ -133,42 +140,15 @@
 		}
 	}
 
-	// Force-directed layout. randomize:false starts from current positions, so
-	// re-running it refines the map rather than reshuffling it. The force
-	// constants follow Cytoscape's own cose demo, which spreads nodes out far
-	// more than the library defaults.
-	function runLayout(animate: boolean) {
-		cy?.layout({
-			name: 'cose',
-			randomize: false,
-			animate,
-			animationDuration: 500,
-			fit: true,
-			padding: 40,
-			nodeDimensionsIncludeLabels: true,
-			idealEdgeLength: () => 100,
-			edgeElasticity: () => 100,
-			nodeRepulsion: () => 400000,
-			nodeOverlap: 20,
-			gravity: 80,
-			numIter: 1000,
-			initialTemp: 200,
-			coolingFactor: 0.95,
-			minTemp: 1.0,
-			stop: () => {
-				capZoom();
-				savePositions();
-			}
-		} as cytoscape.LayoutOptions).run();
-	}
-
-	export function relayout() {
-		runLayout(true);
-	}
-
 	export function fit() {
 		cy?.fit(undefined, 40);
 		capZoom();
+	}
+
+	function fitAnimated() {
+		if (!cy) return;
+		if (prefersReducedMotion()) return fit();
+		cy.animate({ fit: { eles: cy.elements(), padding: 40 } }, { duration: 400, complete: capZoom });
 	}
 
 	/** A point on screen (relative to the graph's top-left) in map coordinates. */
@@ -186,7 +166,7 @@
 	export function placeAt(id: string, pos: Position) {
 		const n = cy?.getElementById(id);
 		if (n && n.nonempty()) {
-			n.position(pos);
+			physics?.moveTo(id, pos);
 			savePositions();
 		} else pendingPlacements.set(id, pos);
 	}
@@ -196,56 +176,72 @@
 		if (n && n.nonempty()) cy?.animate({ center: { eles: n }, zoom: Math.max(cy.zoom(), 1) }, { duration: 300 });
 	}
 
-	onMount(() => {
+	// Map styles, built from the current colour tokens. Called again whenever
+	// the light/dark theme changes, since Cytoscape draws on a canvas and can't
+	// read CSS variables itself.
+	function graphStyle(): cytoscape.StylesheetJson {
 		const text = cssVar('--text', '#ddd');
 		const bg = cssVar('--bg', '#111');
 		const muted = cssVar('--muted', '#999');
 		const accent = cssVar('--accent', '#d4a24c');
+		return [
+			{
+				selector: 'node',
+				style: {
+					'background-color': 'data(color)',
+					label: 'data(label)',
+					color: text,
+					'font-size': 12,
+					'text-valign': 'bottom',
+					'text-margin-y': 4,
+					'text-outline-color': bg,
+					'text-outline-width': 2,
+					width: 26,
+					height: 26
+				}
+			},
+			{
+				selector: 'edge',
+				style: {
+					width: 1.5,
+					'line-color': muted,
+					'target-arrow-color': muted,
+					'target-arrow-shape': 'triangle',
+					'curve-style': 'bezier',
+					label: 'data(label)',
+					'font-size': 10,
+					color: muted,
+					'text-rotation': 'autorotate',
+					'text-background-color': bg,
+					'text-background-opacity': 0.85,
+					'text-background-padding': '2px'
+				}
+			},
+			{ selector: 'node.selected', style: { 'border-width': 3, 'border-color': accent, width: 34, height: 34 } },
+			{
+				selector: 'edge.connected',
+				style: { width: 3, 'line-color': accent, 'target-arrow-color': accent, color: text, 'z-index': 10 }
+			},
+			{ selector: '.faded', style: { opacity: 0.15 } }
+		];
+	}
 
+	onMount(() => {
 		cy = cytoscape({
 			container,
 			minZoom: 0.1,
 			maxZoom: 3,
-			style: [
-				{
-					selector: 'node',
-					style: {
-						'background-color': 'data(color)',
-						label: 'data(label)',
-						color: text,
-						'font-size': 12,
-						'text-valign': 'bottom',
-						'text-margin-y': 4,
-						'text-outline-color': bg,
-						'text-outline-width': 2,
-						width: 26,
-						height: 26
-					}
-				},
-				{
-					selector: 'edge',
-					style: {
-						width: 1.5,
-						'line-color': muted,
-						'target-arrow-color': muted,
-						'target-arrow-shape': 'triangle',
-						'curve-style': 'bezier',
-						label: 'data(label)',
-						'font-size': 10,
-						color: muted,
-						'text-rotation': 'autorotate',
-						'text-background-color': bg,
-						'text-background-opacity': 0.85,
-						'text-background-padding': '2px'
-					}
-				},
-				{ selector: 'node.selected', style: { 'border-width': 3, 'border-color': accent, width: 34, height: 34 } },
-				{
-					selector: 'edge.connected',
-					style: { width: 3, 'line-color': accent, 'target-arrow-color': accent, color: text, 'z-index': 10 }
-				},
-				{ selector: '.faded', style: { opacity: 0.15 } }
-			]
+			style: graphStyle()
+		});
+		physics = new GraphPhysics(cy, {
+			reducedMotion: prefersReducedMotion,
+			onrest: () => {
+				savePositions();
+				if (fitOnRest) {
+					fitOnRest = false;
+					fitAnimated();
+				}
+			}
 		});
 
 		cy.on('tap', 'node', (e) => {
@@ -271,7 +267,16 @@
 		cy.on('position', 'node', placeLabelEditor);
 	});
 
-	onDestroy(() => cy?.destroy());
+	onDestroy(() => {
+		physics?.destroy();
+		cy?.destroy();
+	});
+
+	// Recolour the map when the theme flips.
+	$effect(() => {
+		void theme.current;
+		untrack(() => cy?.style(graphStyle()));
+	});
 
 	// Sync Svelte state → Cytoscape elements, adding/removing/updating in place
 	// so existing nodes keep their positions.
@@ -281,7 +286,7 @@
 		const saved = loadPositions();
 		const nodeIds = new Set(nodes.map((n) => n.id));
 		const edgeIds = new Set(edges.map((e) => e.id));
-		let needsLayout = false;
+		let fresh = false;
 		let placedPending = false;
 
 		g.batch(() => {
@@ -310,7 +315,7 @@
 					position = neighbour
 						? { x: neighbour.position().x + offset.x, y: neighbour.position().y + offset.y }
 						: seedPosition(n.id, i);
-					if (firstLoad) needsLayout = true;
+					if (firstLoad) fresh = true;
 				}
 				added.push({ group: 'nodes', data, position });
 			});
@@ -325,12 +330,13 @@
 		});
 
 		applyGraphFocus(g, selectedId, highlight);
+		untrack(() => physics?.sync({ fresh }));
 		if (placedPending) savePositions();
 
-		if (needsLayout) runLayout(false);
-		else if (fitPending && g.nodes().nonempty()) {
+		if (fitPending && g.nodes().nonempty()) {
 			g.fit(undefined, 40);
 			capZoom();
+			fitOnRest = fresh;
 		}
 		if (g.nodes().nonempty()) fitPending = false;
 
