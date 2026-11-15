@@ -15,14 +15,27 @@
 		onselect: (id: string | null) => void;
 		/** A click/tap on empty canvas (not on a node or edge). */
 		onbackground: () => void;
+		/** A right-click on empty canvas, at a point relative to the graph's top-left. */
+		onmenu: (at: Position) => void;
 		/** Shift+click on a node while another is selected: connect selected → clicked. */
 		onconnect: (fromId: string, toId: string) => void;
 		/** Text typed into the label editor of an unlabelled edge. */
 		onannotate: (edgeId: string, annotation: string) => void;
 	}
 
-	let { campaignId, nodes, edges, types, selectedId, highlight, onselect, onbackground, onconnect, onannotate }: Props =
-		$props();
+	let {
+		campaignId,
+		nodes,
+		edges,
+		types,
+		selectedId,
+		highlight,
+		onselect,
+		onbackground,
+		onmenu,
+		onconnect,
+		onannotate
+	}: Props = $props();
 
 	let container: HTMLDivElement;
 	let cy: Core | null = $state(null);
@@ -153,6 +166,31 @@
 		runLayout(true);
 	}
 
+	export function fit() {
+		cy?.fit(undefined, 40);
+		capZoom();
+	}
+
+	/** A point on screen (relative to the graph's top-left) in map coordinates. */
+	export function toModel(at: Position): Position {
+		if (!cy) return at;
+		const pan = cy.pan();
+		const zoom = cy.zoom();
+		return { x: (at.x - pan.x) / zoom, y: (at.y - pan.y) / zoom };
+	}
+
+	// Positions asked for nodes that haven't reached the map yet.
+	const pendingPlacements = new Map<string, Position>();
+
+	/** Put a node at a map position, now or as soon as it appears. */
+	export function placeAt(id: string, pos: Position) {
+		const n = cy?.getElementById(id);
+		if (n && n.nonempty()) {
+			n.position(pos);
+			savePositions();
+		} else pendingPlacements.set(id, pos);
+	}
+
 	export function focus(id: string) {
 		const n = cy?.getElementById(id);
 		if (n && n.nonempty()) cy?.animate({ center: { eles: n }, zoom: Math.max(cy.zoom(), 1) }, { duration: 300 });
@@ -223,6 +261,10 @@
 			// Cytoscape doesn't fire tap after a pan-drag, so this is a real click.
 			if (e.target === cy) onbackground();
 		});
+		// Right-click, or a long press on touch screens.
+		cy.on('cxttap taphold', (e) => {
+			if (e.target === cy) onmenu({ ...e.renderedPosition });
+		});
 		cy.on('dragfree', 'node', savePositions);
 		// Keep the label editor on its edge as the map moves.
 		cy.on('viewport', placeLabelEditor);
@@ -240,6 +282,7 @@
 		const nodeIds = new Set(nodes.map((n) => n.id));
 		const edgeIds = new Set(edges.map((e) => e.id));
 		let needsLayout = false;
+		let placedPending = false;
 
 		g.batch(() => {
 			g.elements().forEach((el) => {
@@ -255,7 +298,8 @@
 					existing.data(data);
 					return;
 				}
-				let position = saved[n.id];
+				let position = pendingPlacements.get(n.id) ?? saved[n.id];
+				if (pendingPlacements.delete(n.id)) placedPending = true;
 				if (!position) {
 					// Place new nodes beside an already-placed neighbour if possible.
 					const neighbour = edges
@@ -281,6 +325,7 @@
 		});
 
 		applyGraphFocus(g, selectedId, highlight);
+		if (placedPending) savePositions();
 
 		if (needsLayout) runLayout(false);
 		else if (fitPending && g.nodes().nonempty()) {
@@ -298,7 +343,8 @@
 	});
 </script>
 
-<div class="wrap">
+<!-- The map has its own right-click menu. -->
+<div class="wrap" role="presentation" oncontextmenu={(e) => e.preventDefault()}>
 	<div class="graph" bind:this={container}></div>
 	{#if labelPos}
 		<input

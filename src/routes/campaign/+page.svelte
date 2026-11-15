@@ -6,6 +6,13 @@
 	import Graph from '#lib/components/Graph.svelte';
 	import NodeForm from '#lib/components/NodeForm.svelte';
 	import NodePanel from '#lib/components/NodePanel.svelte';
+	import NodeQuickForm from '#lib/components/NodeQuickForm.svelte';
+	import Menu from '#lib/ui/Menu.svelte';
+	import Panel from '#lib/ui/Panel.svelte';
+	import Popover from '#lib/ui/Popover.svelte';
+	import type { Point } from '#lib/ui/place.ts';
+	import { prefersReducedMotion } from '#lib/ui/place.ts';
+	import { fly } from 'svelte/transition';
 	import { filterGraph } from '#lib/filter.ts';
 	import { searchNodes } from '#lib/search.ts';
 	import { SHORTCUTS, loadShortcutsEnabled, saveShortcutsEnabled, shortcutFor } from '#lib/shortcuts.ts';
@@ -37,12 +44,24 @@
 
 	// --- View state ---
 	let selectedId = $state<string | null>(null);
-	let creating = $state(false);
 	let query = $state('');
 	let hiddenTypes = $state<string[]>([]);
 	let asOfSession = $state<number | null>(null);
 	let saving = $state(false);
 	let createError = $state<string | null>(null);
+
+	/** Right-click menu on the map, at a point relative to the canvas. */
+	let menu = $state<Point | null>(null);
+	/** Quick-add popover: where it opened, and where on the map the node will go. */
+	let quick = $state<{ at: Point; place: Point } | null>(null);
+	/** The full new-node form in a side panel, seeded from the popover. */
+	let drafting = $state<{ input: Partial<NodeInput>; place: Point | null } | null>(null);
+
+	/** The panel on top of the Campaign panel, if any. */
+	const overlay = $derived(drafting ? 'create' : selectedId ? 'node' : null);
+
+	let canvasEl = $state<HTMLDivElement | null>(null);
+	let stackEl = $state<HTMLDivElement | null>(null);
 
 	const visible = $derived(
 		filterGraph(store?.liveNodes ?? [], store?.liveEdges ?? [], { hiddenTypes, asOfSession: asOfSession ?? null })
@@ -59,7 +78,8 @@
 
 	function select(id: string | null) {
 		selectedId = id;
-		creating = false;
+		drafting = null;
+		quick = null;
 		if (id) graph?.focus(id);
 	}
 
@@ -67,10 +87,87 @@
 		hiddenTypes = hiddenTypes.includes(id) ? hiddenTypes.filter((t) => t !== id) : [...hiddenTypes, id];
 	}
 
-	function startCreating() {
-		creating = true;
+	// --- Campaign panel (collapsible; remembered per browser) ---
+	const COLLAPSE_KEY = 'legend-lore:campaign-panel';
+	let campaignOpen = $state(readCampaignOpen());
+	function readCampaignOpen() {
+		// On phones the panel would cover most of the map, so it starts closed there.
+		const narrow = typeof matchMedia === 'function' && matchMedia('(max-width: 720px)').matches;
+		try {
+			const saved = localStorage.getItem(COLLAPSE_KEY);
+			return saved ? saved === 'open' : !narrow;
+		} catch {
+			return !narrow;
+		}
+	}
+	function setCampaignOpen(open: boolean) {
+		campaignOpen = open;
+		try {
+			localStorage.setItem(COLLAPSE_KEY, open ? 'open' : 'closed');
+		} catch {
+			/* storage unavailable: the choice lasts for this visit only */
+		}
+	}
+
+	const slide = (node: Element) =>
+		fly(node, { x: -(node as HTMLElement).offsetWidth - 24, opacity: 1, duration: prefersReducedMotion() ? 0 : 220 });
+
+	// --- Creating nodes ---
+	let quickForm = $state<ReturnType<typeof NodeQuickForm> | null>(null);
+
+	/** Open the quick-add popover at a point on the canvas; the node goes there on the map. */
+	function quickAdd(at: Point) {
+		menu = null;
+		drafting = null;
+		createError = null;
+		quick = { at, place: graph?.toModel(at) ?? at };
+	}
+
+	/** The middle of the map area that isn't covered by the side panels. */
+	function openSpaceCentre(): Point {
+		const c = canvasEl?.getBoundingClientRect();
+		if (!c) return { x: 200, y: 200 };
+		const s = stackEl?.getBoundingClientRect();
+		// Panels sit on the left on wide screens and along the bottom on phones.
+		const besidePanels = s && s.width && s.width < c.width / 2;
+		const left = besidePanels ? s.right - c.left : 0;
+		const bottom = !besidePanels && s && s.height ? s.top - c.top : c.height;
+		return { x: (left + c.width) / 2, y: bottom / 2 };
+	}
+
+	/** N or "+ New node": open quick-add, or if it's already open, put the cursor back in Name. */
+	function newNode() {
+		if (quick) quickForm?.focusName();
+		else if (drafting) nodeForm?.focusName();
+		else quickAdd(openSpaceCentre());
+	}
+
+	function expandQuick(input: Partial<NodeInput>) {
+		drafting = { input, place: quick?.place ?? null };
+		quick = null;
 		selectedId = null;
 	}
+
+	async function createNode(input: NodeInput, place: Point | null) {
+		if (!store) return;
+		saving = true;
+		createError = null;
+		try {
+			const n = await store.createNode(input);
+			if (place) graph?.placeAt(n.id, place);
+			select(n.id);
+		} catch (e) {
+			createError = (e as Error).message;
+		} finally {
+			saving = false;
+		}
+	}
+
+	const menuItems = (at: Point) => [
+		{ label: 'New node here', hint: shortcutsOn ? 'N' : undefined, onselect: () => quickAdd(at) },
+		{ label: 'Fit map to screen', onselect: () => graph?.fit() },
+		{ label: 'Re-layout', onselect: () => graph?.relayout() }
+	];
 
 	// --- Keyboard shortcuts (see #lib/shortcuts.ts) ---
 	let shortcutsOn = $state(loadShortcutsEnabled());
@@ -90,15 +187,11 @@
 		else goBack();
 	}
 
-	/** Open the new-node form, or if it's already open, put the cursor back in Name (keeping what's typed). */
-	function newNode() {
-		if (creating) nodeForm?.focusName();
-		else startCreating();
-	}
-
-	/** Esc: undo one step, the same as the panel's Cancel or Close button. */
+	/** Esc: undo one step, the same as the matching Cancel or Close button. */
 	function goBack() {
-		if (creating) creating = false;
+		if (menu) menu = null;
+		else if (quick) quick = null;
+		else if (drafting) drafting = null;
 		else if (selectedId && store?.editing === selectedId) store.endEdit();
 		else if (selectedId) select(null);
 		else if (query) query = '';
@@ -107,21 +200,6 @@
 	function onSearchKey(e: KeyboardEvent) {
 		if (e.key === 'Enter' && hits[0]) select(hits[0].node.id);
 		if (e.key === 'Escape') query = '';
-	}
-
-	async function createNode(input: NodeInput) {
-		if (!store) return;
-		saving = true;
-		createError = null;
-		try {
-			const n = await store.createNode(input);
-			creating = false;
-			select(n.id);
-		} catch (e) {
-			createError = (e as Error).message;
-		} finally {
-			saving = false;
-		}
 	}
 
 	// --- Connections drawn on the map ---
@@ -242,12 +320,12 @@
 		</div>
 		<div class="actions">
 			<button class="ghost" onclick={() => graph?.relayout()} title="Re-run automatic layout">Re-layout</button>
-			<button onclick={startCreating} aria-keyshortcuts={shortcutsOn ? 'N' : undefined} title={shortcutsOn ? 'Shortcut: N' : undefined}>+ New node</button>
+			<button onclick={newNode} aria-keyshortcuts={shortcutsOn ? 'N' : undefined} title={shortcutsOn ? 'Shortcut: N' : undefined}>+ New node</button>
 		</div>
 	</div>
 
 	<div class="workspace">
-		<div class="canvas">
+		<div class="canvas" bind:this={canvasEl}>
 			<Graph
 				bind:this={graph}
 				campaignId={store.id}
@@ -257,98 +335,145 @@
 				{selectedId}
 				{highlight}
 				onselect={select}
-				onbackground={newNode}
+				onbackground={() => (menu = quick = null)}
+				onmenu={(at) => {
+					quick = null;
+					menu = at;
+				}}
 				onconnect={connect}
 				onannotate={annotate}
 			/>
+			{#if store.liveNodes.length === 0}
+				<p class="empty muted">
+					Your graph is empty. Right-click anywhere here and choose <strong>New node here</strong>, or use
+					<strong>+ New node</strong>, to add your first place, person, object or piece of lore.
+				</p>
+			{/if}
 			{#if graphError}
 				<p class="graph-error error">
 					{graphError}
 					<button class="ghost small" onclick={() => (graphError = null)} aria-label="Dismiss">✕</button>
 				</p>
 			{/if}
-			{#if store.liveNodes.length === 0}
-				<p class="empty muted">Your graph is empty. Click anywhere here or <strong>+ New node</strong> to add your first place, person, object or piece of lore.</p>
+
+			<div class="stack" class:wide-open={campaignOpen} bind:this={stackEl}>
+				{#if campaignOpen}
+					<div class="layer base">
+						<Panel title="Campaign" covered={Boolean(overlay)}>
+							{#snippet actions()}
+								<button
+									class="ghost small"
+									onclick={() => setCampaignOpen(false)}
+									aria-label="Collapse campaign panel"
+									title="Collapse">«</button
+								>
+							{/snippet}
+							<p class="muted">
+								{store.liveNodes.length} nodes · {store.liveEdges.length} connections ·
+								{new Set(store.online.map((p) => p.user_id)).size} online
+							</p>
+							{#if toolError}<p class="error">{toolError}</p>{/if}
+
+							<h3>Invite the party</h3>
+							<button class="ghost" onclick={invite}>Create invite link</button>
+							{#if inviteUrl}
+								<p class="muted small-text">Copied to clipboard. Valid for 7 days:</p>
+								<input class="invite" readonly value={inviteUrl} onfocus={(e) => e.currentTarget.select()} />
+							{/if}
+
+							<h3>Tags</h3>
+							{#if store.allTags.length}
+								<div class="tag-list">
+									{#each store.allTags as t (t)}
+										<button class="tag" onclick={() => (query = `#${t}`)}>#{t}</button>
+									{/each}
+								</div>
+							{:else}
+								<p class="muted">No tags yet.</p>
+							{/if}
+
+							<h3>Node types</h3>
+							<form class="add-type" onsubmit={addType}>
+								<input type="color" bind:value={newTypeColor} aria-label="Colour" />
+								<input bind:value={newTypeLabel} placeholder="e.g. Faction" required maxlength="50" />
+								<button type="submit">Add</button>
+							</form>
+
+							<h3>Keyboard shortcuts</h3>
+							<label class="toggle">
+								<input type="checkbox" bind:checked={shortcutsOn} />
+								Single-key shortcuts
+							</label>
+							{#if shortcutsOn}
+								<dl class="shortcuts">
+									{#each SHORTCUTS as s (s.action)}
+										<dt><kbd>{s.keys}</kbd></dt>
+										<dd>{s.label}</dd>
+									{/each}
+								</dl>
+								<p class="muted small-text">They don't work while you're typing in a field.</p>
+							{/if}
+
+							<h3>Trash</h3>
+							{#if store.trashedNodes.length}
+								<ul class="trash">
+									{#each store.trashedNodes as n (n.id)}
+										<li>
+											<span>{n.name}</span>
+											<button class="ghost small" onclick={() => restoreNode(n.id)}>Restore</button>
+										</li>
+									{/each}
+								</ul>
+							{:else}
+								<p class="muted">Empty.</p>
+							{/if}
+						</Panel>
+					</div>
+				{:else if !overlay}
+					<button class="ghost panel-tab" onclick={() => setCampaignOpen(true)} aria-label="Open campaign panel">
+						☰ Campaign
+					</button>
+				{/if}
+
+				{#if overlay === 'create' && drafting}
+					<div class="layer top" class:peek={campaignOpen} transition:slide>
+						<Panel title="New node" onclose={() => (drafting = null)}>
+							{#if createError}<p class="error">{createError}</p>{/if}
+							<NodeForm
+								bind:this={nodeForm}
+								types={store.sortedTypes}
+								initial={drafting.input}
+								{saving}
+								onsave={(input) => createNode(input, drafting?.place ?? null)}
+								oncancel={() => (drafting = null)}
+							/>
+						</Panel>
+					</div>
+				{:else if overlay === 'node' && selectedId}
+					<div class="layer top" class:peek={campaignOpen} transition:slide>
+						<Panel label="Node" onclose={() => select(null)}>
+							<NodePanel {store} nodeId={selectedId} onselect={select} ontag={(t) => (query = `#${t}`)} />
+						</Panel>
+					</div>
+				{/if}
+			</div>
+
+			{#if menu}
+				<Menu at={menu} label="Map" items={menuItems(menu)} onclose={() => (menu = null)} />
+			{/if}
+			{#if quick}
+				<Popover at={quick.at} label="New node" onclose={() => (quick = null)}>
+					<NodeQuickForm
+						bind:this={quickForm}
+						types={store.sortedTypes}
+						{saving}
+						error={createError}
+						onsave={(input) => createNode(input, quick?.place ?? null)}
+						onexpand={expandQuick}
+					/>
+				</Popover>
 			{/if}
 		</div>
-
-		<aside class="panel">
-			{#if creating}
-				<h2>New node</h2>
-				{#if createError}<p class="error">{createError}</p>{/if}
-				<NodeForm
-					bind:this={nodeForm}
-					types={store.sortedTypes}
-					{saving}
-					onsave={createNode}
-					oncancel={() => (creating = false)}
-				/>
-			{:else if selectedId}
-				<button class="ghost small close" onclick={() => select(null)}>✕ Close</button>
-				<NodePanel {store} nodeId={selectedId} onselect={select} ontag={(t) => (query = `#${t}`)} />
-			{:else}
-				<h2>Campaign</h2>
-				<p class="muted">
-					{store.liveNodes.length} nodes · {store.liveEdges.length} connections ·
-					{new Set(store.online.map((p) => p.user_id)).size} online
-				</p>
-				{#if toolError}<p class="error">{toolError}</p>{/if}
-
-				<h3>Invite the party</h3>
-				<button class="ghost" onclick={invite}>Create invite link</button>
-				{#if inviteUrl}
-					<p class="muted small-text">Copied to clipboard. Valid for 7 days:</p>
-					<input class="invite" readonly value={inviteUrl} onfocus={(e) => e.currentTarget.select()} />
-				{/if}
-
-				<h3>Tags</h3>
-				{#if store.allTags.length}
-					<div class="tag-list">
-						{#each store.allTags as t (t)}
-							<button class="tag" onclick={() => (query = `#${t}`)}>#{t}</button>
-						{/each}
-					</div>
-				{:else}
-					<p class="muted">No tags yet.</p>
-				{/if}
-
-				<h3>Node types</h3>
-				<form class="add-type" onsubmit={addType}>
-					<input type="color" bind:value={newTypeColor} aria-label="Colour" />
-					<input bind:value={newTypeLabel} placeholder="e.g. Faction" required maxlength="50" />
-					<button type="submit">Add</button>
-				</form>
-
-				<h3>Keyboard shortcuts</h3>
-				<label class="toggle">
-					<input type="checkbox" bind:checked={shortcutsOn} />
-					Single-key shortcuts
-				</label>
-				{#if shortcutsOn}
-					<dl class="shortcuts">
-						{#each SHORTCUTS as s (s.action)}
-							<dt><kbd>{s.keys}</kbd></dt>
-							<dd>{s.label}</dd>
-						{/each}
-					</dl>
-					<p class="muted small-text">They don't work while you're typing in a field.</p>
-				{/if}
-
-				<h3>Trash</h3>
-				{#if store.trashedNodes.length}
-					<ul class="trash">
-						{#each store.trashedNodes as n (n.id)}
-							<li>
-								<span>{n.name}</span>
-								<button class="ghost small" onclick={() => restoreNode(n.id)}>Restore</button>
-							</li>
-						{/each}
-					</ul>
-				{:else}
-					<p class="muted">Empty.</p>
-				{/if}
-			{/if}
-		</aside>
 	</div>
 {/if}
 
@@ -445,6 +570,7 @@
 		flex: 1;
 		position: relative;
 		min-width: 0;
+		overflow: hidden;
 	}
 	.empty {
 		position: absolute;
@@ -454,39 +580,52 @@
 	}
 	.graph-error {
 		position: absolute;
-		top: 0.5rem;
-		left: 0.5rem;
-		right: 0.5rem;
+		top: var(--gap-float);
+		right: var(--gap-float);
+		max-width: 24rem;
 		margin: 0;
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
 		gap: 0.5rem;
 		background: var(--panel);
 		padding: 0.4rem 0.6rem;
-		border-radius: 6px;
+		border-radius: var(--radius);
+		box-shadow: var(--shadow-float);
 		z-index: 6;
 	}
-	.panel {
-		width: min(28rem, 40vw);
-		border-left: 1px solid var(--border);
+
+	/* Floating side panels, on the left. A panel opened from the map sits on
+	   top of the Campaign panel like a page laid over another, leaving the
+	   Campaign panel's right edge showing. */
+	.stack {
+		position: absolute;
+		top: var(--gap-float);
+		bottom: var(--gap-float);
+		left: var(--gap-float);
+		width: min(26rem, calc(100% - 2 * var(--gap-float)));
+		pointer-events: none;
+		z-index: 4;
+	}
+	.layer {
+		position: absolute;
+		inset: 0;
+		pointer-events: auto;
+	}
+	.layer.top.peek {
+		right: var(--page-peek);
+	}
+	.panel-tab {
+		pointer-events: auto;
 		background: var(--panel);
-		padding: 1rem;
-		overflow-y: auto;
-		max-height: calc(100dvh - 8rem);
+		border-radius: var(--radius);
+		box-shadow: var(--shadow-float);
 	}
-	.panel h2 {
-		margin-top: 0;
-	}
-	.panel h3 {
+	h3 {
 		font-size: 0.9rem;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: var(--muted);
 		margin: 1.25rem 0 0.5rem;
-	}
-	.close {
-		float: right;
 	}
 	.invite {
 		width: 100%;
@@ -554,20 +693,34 @@
 		margin: 3rem auto;
 	}
 
-	/* Phones: graph on top, panel below. */
+	/* Phones: the panels float along the bottom of the map instead, and a
+	   panel on top leaves the Campaign panel's top edge showing. */
 	@media (max-width: 720px) {
-		.workspace {
-			flex-direction: column;
-		}
 		.canvas {
-			height: 55dvh;
-			flex: none;
+			min-height: 75dvh;
 		}
-		.panel {
-			width: 100%;
-			max-height: none;
-			border-left: none;
-			border-top: 1px solid var(--border);
+		.stack {
+			top: auto;
+			right: var(--gap-float);
+			width: auto;
+			height: min(55dvh, calc(100% - 2 * var(--gap-float) - var(--page-peek)));
+		}
+		.stack:not(.wide-open) {
+			height: min(55dvh, calc(100% - 2 * var(--gap-float)));
+		}
+		.layer.top.peek {
+			left: 0;
+			right: 0;
+			top: var(--page-peek);
+			bottom: calc(-1 * var(--page-peek));
+		}
+		.stack.wide-open {
+			bottom: calc(var(--gap-float) + var(--page-peek));
+		}
+		.panel-tab {
+			position: absolute;
+			bottom: 0;
+			left: 0;
 		}
 		.actions {
 			margin-left: 0;

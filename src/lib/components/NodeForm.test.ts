@@ -7,7 +7,7 @@ import NodeForm from './NodeForm.svelte';
 const place = makeType({ id: 'place', label: 'Place', sort_order: 0 });
 const person = makeType({ id: 'person', label: 'Person', sort_order: 1 });
 
-function setup(props: Partial<{ initial: ReturnType<typeof makeNode>; saving: boolean }> = {}) {
+function setup(props: Partial<{ initial: Parameters<typeof makeNode>[0]; saving: boolean }> = {}) {
 	const onsave = vi.fn();
 	const oncancel = vi.fn();
 	render(NodeForm, { types: [place, person], onsave, oncancel, ...props });
@@ -150,5 +150,14 @@ describe('NodeForm', () => {
 		expect(f.save).toHaveTextContent('Saving…');
 		expect(f.save).toBeDisabled();
 		expect(f.cancel).toBeDisabled();
+	});
+
+	it('starts from a draft handed over by the quick-add popover', () => {
+		const f = setup({ initial: { name: 'Strahd', type_id: 'person', tags: ['vampire'] } });
+		expect(f.name).toHaveValue('Strahd');
+		expect(f.type).toHaveValue('person');
+		expect(f.tags).toHaveValue('vampire');
+		expect(f.aliases).toHaveValue('');
+		expect(f.notes).toHaveValue('');
 	});
 });

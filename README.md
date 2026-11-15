@@ -60,11 +60,21 @@ turn it on:
 3. Push to `main`. The **Deploy to GitHub Pages** workflow builds and
    publishes the site. **Keep Supabase awake** runs every three days.
 
-## Adding nodes
+## Using the map
 
-Click any empty space in the graph (or **+ New node**) to open the new-node
-form with the cursor in Name. Clicking empty space again while the form is open
-just puts the cursor back in Name; it doesn't clear what you've typed.
+- **Add a node:** right-click empty space on the map (long-press on a touch
+  screen). **New node here** is the first item in the menu, right under the
+  pointer, so a right-click then a left-click opens the quick-add pop-up. The
+  node is placed where you clicked. **+ New node** or `N` opens the pop-up in
+  the middle of the map instead.
+- The pop-up asks for a name, type and tags. **Open in side panel** moves what
+  you've typed into the full form, with aliases, session and notes.
+- **Connect nodes:** select a node, then Shift+click another to draw a
+  connection from the first to the second. Type its annotation in the box that
+  appears on the new connection, or click any unlabelled connection to label it.
+- **Panels** float on the left. A node's panel opens on top of the Campaign
+  panel. The Campaign panel collapses with **«** (it starts collapsed on
+  phones); the choice is remembered per browser.
 
 ## Keyboard shortcuts
 
@@ -73,10 +83,10 @@ On the campaign page, when you aren't typing in a field:
 | Key | Does |
 |---|---|
 | `/` | Focus the search box |
-| `N` | New node, with the cursor in Name |
-| `Esc` | Close the open panel or form, or clear the search |
+| `N` | Open the quick-add pop-up, with the cursor in Name |
+| `Esc` | Close the menu, pop-up or panel, or clear the search |
 
-They can be turned off under **Keyboard shortcuts** in the campaign sidebar
+They can be turned off under **Keyboard shortcuts** in the Campaign panel
 (remembered per browser), as recommended for single-key shortcuts by WCAG
 2.1.4.
 

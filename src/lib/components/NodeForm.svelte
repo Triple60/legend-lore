@@ -1,12 +1,13 @@
 <script lang="ts">
 	import type { NodeInput } from '#lib/campaign.svelte.ts';
 	import { splitList } from '#lib/lists.ts';
-	import type { LoreNode, NodeType } from '#lib/types.ts';
+	import type { NodeType } from '#lib/types.ts';
 	import { onMount, untrack } from 'svelte';
 
 	interface Props {
 		types: NodeType[];
-		initial?: LoreNode | null;
+		/** An existing node to edit, or a draft (e.g. from the quick-add popover). */
+		initial?: Partial<NodeInput> | null;
 		saving?: boolean;
 		onsave: (input: NodeInput) => void;
 		oncancel: () => void;
@@ -19,9 +20,9 @@
 	const seed = untrack(() => initial);
 	const defaultType = untrack(() => types[0]?.id ?? '');
 	let name = $state(seed?.name ?? '');
-	let typeId = $state(seed?.type_id ?? defaultType);
-	let aliases = $state(seed?.aliases.join(', ') ?? '');
-	let tags = $state(seed?.tags.join(', ') ?? '');
+	let typeId = $state(seed?.type_id || defaultType);
+	let aliases = $state(seed?.aliases?.join(', ') ?? '');
+	let tags = $state(seed?.tags?.join(', ') ?? '');
 	let session = $state<number | null>(seed?.session_number ?? null);
 	let notes = $state(seed?.notes ?? '');
 

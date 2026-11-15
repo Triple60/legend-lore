@@ -11,7 +11,7 @@ export type Shortcut = 'search' | 'new-node' | 'back';
 export const SHORTCUTS: { keys: string; action: Shortcut; label: string }[] = [
 	{ keys: '/', action: 'search', label: 'Search' },
 	{ keys: 'N', action: 'new-node', label: 'New node' },
-	{ keys: 'Esc', action: 'back', label: 'Close the panel or clear the search' }
+	{ keys: 'Esc', action: 'back', label: 'Close the menu, pop-up or panel, or clear the search' }
 ];
 
 /** True when keys typed here are meant as text or as input to the control. */

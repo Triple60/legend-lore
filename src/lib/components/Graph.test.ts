@@ -14,6 +14,7 @@ HTMLCanvasElement.prototype.getContext = (() => noop) as never;
 function setup({ selectedId = null as string | null } = {}) {
 	const onselect = vi.fn();
 	const onbackground = vi.fn();
+	const onmenu = vi.fn();
 	const onconnect = vi.fn();
 	const onannotate = vi.fn();
 	const place = makeType({ id: 'place' });
@@ -29,12 +30,13 @@ function setup({ selectedId = null as string | null } = {}) {
 		highlight: null,
 		onselect,
 		onbackground,
+		onmenu,
 		onconnect,
 		onannotate
 	});
 	// Cytoscape registers its instance on the container element.
 	const el = container.querySelector('.graph') as HTMLElement & { _cyreg: { cy: Core } };
-	return { cy: el._cyreg.cy, onselect, onbackground, onconnect, onannotate };
+	return { cy: el._cyreg.cy, onselect, onbackground, onmenu, onconnect, onannotate };
 }
 
 const shiftTap = (cy: Core, id: string) =>
@@ -100,5 +102,18 @@ describe('Graph', () => {
 		cy.getElementById('named').emit('tap');
 		await tick();
 		expect(screen.queryByLabelText('Connection annotation')).not.toBeInTheDocument();
+	});
+
+	it('reports a right-click on empty canvas, with where it happened', () => {
+		const { cy, onmenu, onbackground } = setup();
+		cy.emit({ type: 'cxttap', renderedPosition: { x: 120, y: 80 } } as never);
+		expect(onmenu).toHaveBeenCalledWith({ x: 120, y: 80 });
+		expect(onbackground).not.toHaveBeenCalled();
+	});
+
+	it('ignores a right-click on a node', () => {
+		const { cy, onmenu } = setup();
+		cy.getElementById('n1').emit('cxttap');
+		expect(onmenu).not.toHaveBeenCalled();
 	});
 });
