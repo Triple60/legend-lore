@@ -86,10 +86,14 @@
 		// Stops the key also being typed into the field we're about to focus.
 		e.preventDefault();
 		if (action === 'search') searchInput?.focus();
-		else if (action === 'new-node') {
-			if (creating) nodeForm?.focusName();
-			else startCreating();
-		} else goBack();
+		else if (action === 'new-node') newNode();
+		else goBack();
+	}
+
+	/** Open the new-node form, or if it's already open, put the cursor back in Name (keeping what's typed). */
+	function newNode() {
+		if (creating) nodeForm?.focusName();
+		else startCreating();
 	}
 
 	/** Esc: undo one step, the same as the panel's Cancel or Close button. */
@@ -227,9 +231,10 @@
 				{selectedId}
 				{highlight}
 				onselect={select}
+				onbackground={newNode}
 			/>
 			{#if store.liveNodes.length === 0}
-				<p class="empty muted">Your graph is empty. Click <strong>+ New node</strong> to add your first place, person, object or piece of lore.</p>
+				<p class="empty muted">Your graph is empty. Click anywhere here or <strong>+ New node</strong> to add your first place, person, object or piece of lore.</p>
 			{/if}
 		</div>
 
