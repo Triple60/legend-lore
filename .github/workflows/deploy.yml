@@ -25,6 +25,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      # A failing test stops the deploy, so a regression never goes live.
+      - run: npm test
       - name: Build
         run: npm run build
         env:

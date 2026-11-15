@@ -1,6 +1,7 @@
 import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
-import { defineConfig } from 'vite';
+import { svelteTesting } from '@testing-library/svelte/vite';
+import { defineConfig } from 'vitest/config';
 
 // GitHub Pages serves project sites from /<repo-name>. The deploy workflow sets
 // BASE_PATH=/legend-lore; locally it is empty so the dev server runs at /.
@@ -20,6 +21,32 @@ export default defineConfig({
 			// strings (e.g. /campaign?id=...) rather than route params.
 			adapter: adapter({ fallback: '404.html' }),
 			paths: { base }
-		})
-	]
+		}),
+		// Only active under Vitest: browser builds of Svelte + DOM cleanup.
+		svelteTesting()
+	],
+	test: {
+		projects: [
+			{
+				extends: true,
+				test: {
+					name: 'app',
+					environment: 'jsdom',
+					include: ['src/**/*.test.ts'],
+					setupFiles: ['src/tests/setup.ts']
+				}
+			},
+			{
+				// Runs the real migration in an in-memory Postgres (PGlite).
+				extends: true,
+				test: {
+					name: 'db',
+					environment: 'node',
+					include: ['supabase/tests/**/*.test.ts'],
+					testTimeout: 30_000,
+					hookTimeout: 60_000
+				}
+			}
+		]
+	}
 });

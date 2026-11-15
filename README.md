@@ -60,6 +60,20 @@ turn it on:
 3. Push to `main`. The **Deploy to GitHub Pages** workflow builds and
    publishes the site. **Keep Supabase awake** runs every three days.
 
+## Keyboard shortcuts
+
+On the campaign page, when you aren't typing in a field:
+
+| Key | Does |
+|---|---|
+| `/` | Focus the search box |
+| `N` | New node, with the cursor in Name |
+| `Esc` | Close the open panel or form, or clear the search |
+
+They can be turned off under **Keyboard shortcuts** in the campaign sidebar
+(remembered per browser), as recommended for single-key shortcuts by WCAG
+2.1.4.
+
 ## Local development
 
 ```bash
@@ -76,3 +90,23 @@ npm run dev
 
 `npm run check` type-checks; `npm run build` produces the static site in
 `build/`.
+
+## Tests
+
+```bash
+npm test
+```
+
+`npm run test:watch` re-runs them as you edit. No Supabase project or network
+access is needed. There are two groups:
+
+- **app** (`src/**/*.test.ts`): search, Markdown and wiki links, the graph
+  filters, the campaign store (against a fake Supabase client), and the node
+  form and node panel rendered in a simulated browser.
+- **db** (`supabase/tests/`): runs the real migrations in an in-memory Postgres
+  ([PGlite](https://pglite.dev)) and checks the rules that live in SQL:
+  row-level security, invites, cleanup of tags and aliases, version stamps and
+  history.
+
+GitHub Actions runs the type check and tests on every push. On `main`, a
+failing test stops the deploy.

@@ -76,10 +76,10 @@
 	let direction = $state<'out' | 'in'>('out');
 	let target = $state('');
 	let annotation = $state('');
-	let edgeSession = $state('');
+	let edgeSession = $state<number | null>(null);
 	let editingEdge = $state<string | null>(null);
 	let editAnnotation = $state('');
-	let editSession = $state('');
+	let editSession = $state<number | null>(null);
 
 	async function addEdge(e: SubmitEvent) {
 		e.preventDefault();
@@ -93,23 +93,26 @@
 			store.createEdge({
 				...ends,
 				annotation: annotation.trim(),
-				session_number: edgeSession.trim() === '' ? null : Number(edgeSession)
+				session_number: edgeSession ?? null
 			})
 		);
-		if (created) target = annotation = edgeSession = '';
+		if (created) {
+			target = annotation = '';
+			edgeSession = null;
+		}
 	}
 
 	function beginEdgeEdit(edge: LoreEdge) {
 		editingEdge = edge.id;
 		editAnnotation = edge.annotation;
-		editSession = edge.session_number?.toString() ?? '';
+		editSession = edge.session_number ?? null;
 	}
 
 	async function saveEdge(edge: LoreEdge) {
 		const ok = await run(() =>
 			store.updateEdge(edge, {
 				annotation: editAnnotation.trim(),
-				session_number: editSession.trim() === '' ? null : Number(editSession)
+				session_number: editSession ?? null
 			})
 		);
 		if (ok) editingEdge = null;

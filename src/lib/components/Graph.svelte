@@ -1,6 +1,7 @@
 <script lang="ts">
 	import cytoscape, { type Core, type ElementDefinition, type Position } from 'cytoscape';
 	import { onDestroy, onMount } from 'svelte';
+	import { applyGraphFocus } from '#lib/graph-focus.ts';
 	import type { LoreEdge, LoreNode, NodeType } from '#lib/types.ts';
 
 	interface Props {
@@ -9,7 +10,7 @@
 		edges: LoreEdge[];
 		types: Record<string, NodeType>;
 		selectedId: string | null;
-		/** When set, nodes outside this set are faded. */
+		/** Search results: when set, nodes outside it are faded. */
 		highlight: Set<string> | null;
 		onselect: (id: string | null) => void;
 	}
@@ -150,6 +151,10 @@
 					}
 				},
 				{ selector: 'node.selected', style: { 'border-width': 3, 'border-color': accent, width: 34, height: 34 } },
+				{
+					selector: 'edge.connected',
+					style: { width: 3, 'line-color': accent, 'target-arrow-color': accent, color: text, 'z-index': 10 }
+				},
 				{ selector: '.faded', style: { opacity: 0.15 } }
 			]
 		});
@@ -210,18 +215,9 @@
 				if (existing.nonempty()) existing.data(data);
 				else g.add({ group: 'edges', data });
 			}
-
-			g.nodes().forEach((n) => {
-				n.toggleClass('selected', n.id() === selectedId);
-			});
-			g.elements().forEach((el) => {
-				const { source, target } = el.data() as { source?: string; target?: string };
-				const inSet = el.isNode()
-					? highlight?.has(el.id())
-					: Boolean(source && target && highlight?.has(source) && highlight?.has(target));
-				el.toggleClass('faded', Boolean(highlight) && !inSet);
-			});
 		});
+
+		applyGraphFocus(g, selectedId, highlight);
 
 		if (needsLayout) runLayout(false);
 		else if (fitPending && g.nodes().nonempty()) {
