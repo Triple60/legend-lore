@@ -78,11 +78,12 @@
 		return ids;
 	});
 
-	function select(id: string | null) {
+	/** Select a node; `center` pans the map to it (for picks made off the map). */
+	function select(id: string | null, center = true) {
 		selectedId = id;
 		drafting = null;
 		quick = null;
-		if (id) graph?.focus(id);
+		if (id && center) graph?.focus(id);
 	}
 
 	function toggleType(id: string) {
@@ -389,7 +390,7 @@
 				types={store.types}
 				{selectedId}
 				{highlight}
-				onselect={select}
+				onselect={(id) => select(id, false)}
 				onbackground={clickBackground}
 				onmenu={(at) => {
 					quick = null;
