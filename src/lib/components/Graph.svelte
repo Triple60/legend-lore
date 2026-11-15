@@ -134,8 +134,8 @@
 		}
 	}
 
-	// Force-directed layout. randomize:false starts from current positions, so
-	// re-running it refines the map rather than reshuffling it. The force
+	// Force-directed layout, run once when a campaign's map has no saved
+	// positions yet. randomize:false starts from the seeded positions. The force
 	// constants follow Cytoscape's own cose demo, which spreads nodes out far
 	// more than the library defaults.
 	function runLayout(animate: boolean) {
@@ -161,10 +161,6 @@
 				savePositions();
 			}
 		} as cytoscape.LayoutOptions).run();
-	}
-
-	export function relayout() {
-		runLayout(true);
 	}
 
 	export function fit() {

@@ -165,8 +165,7 @@
 
 	const menuItems = (at: Point) => [
 		{ label: 'New node here', hint: shortcutsOn ? 'N' : undefined, onselect: () => quickAdd(at) },
-		{ label: 'Fit map to screen', onselect: () => graph?.fit() },
-		{ label: 'Re-layout', onselect: () => graph?.relayout() }
+		{ label: 'Fit map to screen', onselect: () => graph?.fit() }
 	];
 
 	// --- Keyboard shortcuts (see #lib/shortcuts.ts) ---
@@ -319,7 +318,6 @@
 			</label>
 		</div>
 		<div class="actions">
-			<button class="ghost" onclick={() => graph?.relayout()} title="Re-run automatic layout">Re-layout</button>
 			<button onclick={newNode} aria-keyshortcuts={shortcutsOn ? 'N' : undefined} title={shortcutsOn ? 'Shortcut: N' : undefined}>+ New node</button>
 		</div>
 	</div>
