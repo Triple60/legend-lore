@@ -8,6 +8,7 @@
 	import NodePanel from '#lib/components/NodePanel.svelte';
 	import { filterGraph } from '#lib/filter.ts';
 	import { searchNodes } from '#lib/search.ts';
+	import { SHORTCUTS, loadShortcutsEnabled, saveShortcutsEnabled, shortcutFor } from '#lib/shortcuts.ts';
 	import { auth } from '#lib/session.svelte.ts';
 	import { untrack } from 'svelte';
 
@@ -64,6 +65,39 @@
 
 	function toggleType(id: string) {
 		hiddenTypes = hiddenTypes.includes(id) ? hiddenTypes.filter((t) => t !== id) : [...hiddenTypes, id];
+	}
+
+	function startCreating() {
+		creating = true;
+		selectedId = null;
+	}
+
+	// --- Keyboard shortcuts (see #lib/shortcuts.ts) ---
+	let shortcutsOn = $state(loadShortcutsEnabled());
+	let searchInput = $state<HTMLInputElement | null>(null);
+	let nodeForm = $state<ReturnType<typeof NodeForm> | null>(null);
+
+	$effect(() => saveShortcutsEnabled(shortcutsOn));
+
+	function onWindowKey(e: KeyboardEvent) {
+		if (!shortcutsOn || !store || store.loading || store.error) return;
+		const action = shortcutFor(e, document.activeElement);
+		if (!action) return;
+		// Stops the key also being typed into the field we're about to focus.
+		e.preventDefault();
+		if (action === 'search') searchInput?.focus();
+		else if (action === 'new-node') {
+			if (creating) nodeForm?.focusName();
+			else startCreating();
+		} else goBack();
+	}
+
+	/** Esc: undo one step, the same as the panel's Cancel or Close button. */
+	function goBack() {
+		if (creating) creating = false;
+		else if (selectedId && store?.editing === selectedId) store.endEdit();
+		else if (selectedId) select(null);
+		else if (query) query = '';
 	}
 
 	function onSearchKey(e: KeyboardEvent) {
@@ -137,8 +171,10 @@
 		<div class="search">
 			<input
 				type="search"
+				bind:this={searchInput}
 				bind:value={query}
 				onkeydown={onSearchKey}
+				aria-keyshortcuts={shortcutsOn ? '/' : undefined}
 				placeholder="Search names, aliases, notes, #tags…"
 				aria-label="Search"
 			/>
@@ -176,7 +212,7 @@
 		</div>
 		<div class="actions">
 			<button class="ghost" onclick={() => graph?.relayout()} title="Re-run automatic layout">Re-layout</button>
-			<button onclick={() => ((creating = true), (selectedId = null))}>+ New node</button>
+			<button onclick={startCreating} aria-keyshortcuts={shortcutsOn ? 'N' : undefined} title={shortcutsOn ? 'Shortcut: N' : undefined}>+ New node</button>
 		</div>
 	</div>
 
@@ -201,7 +237,13 @@
 			{#if creating}
 				<h2>New node</h2>
 				{#if createError}<p class="error">{createError}</p>{/if}
-				<NodeForm types={store.sortedTypes} {saving} onsave={createNode} oncancel={() => (creating = false)} />
+				<NodeForm
+					bind:this={nodeForm}
+					types={store.sortedTypes}
+					{saving}
+					onsave={createNode}
+					oncancel={() => (creating = false)}
+				/>
 			{:else if selectedId}
 				<button class="ghost small close" onclick={() => select(null)}>✕ Close</button>
 				<NodePanel {store} nodeId={selectedId} onselect={select} ontag={(t) => (query = `#${t}`)} />
@@ -238,6 +280,21 @@
 					<button type="submit">Add</button>
 				</form>
 
+				<h3>Keyboard shortcuts</h3>
+				<label class="toggle">
+					<input type="checkbox" bind:checked={shortcutsOn} />
+					Single-key shortcuts
+				</label>
+				{#if shortcutsOn}
+					<dl class="shortcuts">
+						{#each SHORTCUTS as s (s.action)}
+							<dt><kbd>{s.keys}</kbd></dt>
+							<dd>{s.label}</dd>
+						{/each}
+					</dl>
+					<p class="muted small-text">They don't work while you're typing in a field.</p>
+				{/if}
+
 				<h3>Trash</h3>
 				{#if store.trashedNodes.length}
 					<ul class="trash">
@@ -255,6 +312,8 @@
 		</aside>
 	</div>
 {/if}
+
+<svelte:window onkeydown={onWindowKey} />
 
 <style>
 	.toolbar {
@@ -378,6 +437,29 @@
 	.invite {
 		width: 100%;
 		font-size: 0.8rem;
+	}
+	.toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+	}
+	.shortcuts {
+		display: grid;
+		grid-template-columns: auto 1fr;
+		gap: 0.3rem 0.6rem;
+		margin: 0.5rem 0;
+		align-items: center;
+	}
+	.shortcuts dd {
+		margin: 0;
+	}
+	kbd {
+		font-family: var(--mono);
+		font-size: 0.8rem;
+		padding: 0.05rem 0.4rem;
+		border: 1px solid var(--border);
+		border-bottom-width: 2px;
+		border-radius: 4px;
 	}
 	.small-text {
 		font-size: 0.8rem;

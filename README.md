@@ -60,6 +60,20 @@ turn it on:
 3. Push to `main`. The **Deploy to GitHub Pages** workflow builds and
    publishes the site. **Keep Supabase awake** runs every three days.
 
+## Keyboard shortcuts
+
+On the campaign page, when you aren't typing in a field:
+
+| Key | Does |
+|---|---|
+| `/` | Focus the search box |
+| `N` | New node, with the cursor in Name |
+| `Esc` | Close the open panel or form, or clear the search |
+
+They can be turned off under **Keyboard shortcuts** in the campaign sidebar
+(remembered per browser), as recommended for single-key shortcuts by WCAG
+2.1.4.
+
 ## Local development
 
 ```bash

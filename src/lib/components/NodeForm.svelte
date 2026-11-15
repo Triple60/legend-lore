@@ -2,7 +2,7 @@
 	import type { NodeInput } from '#lib/campaign.svelte.ts';
 	import { splitList } from '#lib/lists.ts';
 	import type { LoreNode, NodeType } from '#lib/types.ts';
-	import { untrack } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 
 	interface Props {
 		types: NodeType[];
@@ -25,6 +25,12 @@
 	let session = $state<number | null>(seed?.session_number ?? null);
 	let notes = $state(seed?.notes ?? '');
 
+	let nameInput: HTMLInputElement;
+	export function focusName() {
+		nameInput.focus();
+	}
+	onMount(focusName);
+
 	function submit(e: SubmitEvent) {
 		e.preventDefault();
 		onsave({
@@ -41,7 +47,7 @@
 <form class="node-form" onsubmit={submit}>
 	<label>
 		Name <span class="hint req">required</span>
-		<input bind:value={name} required maxlength="200" placeholder="e.g. Strahd von Zarovich" />
+		<input bind:this={nameInput} bind:value={name} required maxlength="200" placeholder="e.g. Strahd von Zarovich" />
 	</label>
 	<div class="row">
 		<label>

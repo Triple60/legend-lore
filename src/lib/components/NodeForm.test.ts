@@ -39,6 +39,11 @@ describe('NodeForm', () => {
 		expect(f.aliases).not.toBeRequired();
 	});
 
+	it('puts the cursor in Name when it opens', () => {
+		const f = setup();
+		expect(f.name).toHaveFocus();
+	});
+
 	it('disables Save until a name is entered', async () => {
 		const f = setup();
 		expect(f.save).toBeDisabled();
