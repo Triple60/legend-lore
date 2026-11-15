@@ -3,6 +3,7 @@
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import { applyGraphFocus } from '#lib/graph-focus.ts';
 	import type { LoreEdge, LoreNode, NodeType } from '#lib/types.ts';
+	import { theme } from '#lib/theme.svelte.ts';
 
 	interface Props {
 		campaignId: string;
@@ -196,56 +197,62 @@
 		if (n && n.nonempty()) cy?.animate({ center: { eles: n }, zoom: Math.max(cy.zoom(), 1) }, { duration: 300 });
 	}
 
-	onMount(() => {
+	// Map styles, built from the current colour tokens. Called again whenever
+	// the light/dark theme changes, since Cytoscape draws on a canvas and can't
+	// read CSS variables itself.
+	function graphStyle(): cytoscape.StylesheetJson {
 		const text = cssVar('--text', '#ddd');
 		const bg = cssVar('--bg', '#111');
 		const muted = cssVar('--muted', '#999');
 		const accent = cssVar('--accent', '#d4a24c');
+		return [
+			{
+				selector: 'node',
+				style: {
+					'background-color': 'data(color)',
+					label: 'data(label)',
+					color: text,
+					'font-size': 12,
+					'text-valign': 'bottom',
+					'text-margin-y': 4,
+					'text-outline-color': bg,
+					'text-outline-width': 2,
+					width: 26,
+					height: 26
+				}
+			},
+			{
+				selector: 'edge',
+				style: {
+					width: 1.5,
+					'line-color': muted,
+					'target-arrow-color': muted,
+					'target-arrow-shape': 'triangle',
+					'curve-style': 'bezier',
+					label: 'data(label)',
+					'font-size': 10,
+					color: muted,
+					'text-rotation': 'autorotate',
+					'text-background-color': bg,
+					'text-background-opacity': 0.85,
+					'text-background-padding': '2px'
+				}
+			},
+			{ selector: 'node.selected', style: { 'border-width': 3, 'border-color': accent, width: 34, height: 34 } },
+			{
+				selector: 'edge.connected',
+				style: { width: 3, 'line-color': accent, 'target-arrow-color': accent, color: text, 'z-index': 10 }
+			},
+			{ selector: '.faded', style: { opacity: 0.15 } }
+		];
+	}
 
+	onMount(() => {
 		cy = cytoscape({
 			container,
 			minZoom: 0.1,
 			maxZoom: 3,
-			style: [
-				{
-					selector: 'node',
-					style: {
-						'background-color': 'data(color)',
-						label: 'data(label)',
-						color: text,
-						'font-size': 12,
-						'text-valign': 'bottom',
-						'text-margin-y': 4,
-						'text-outline-color': bg,
-						'text-outline-width': 2,
-						width: 26,
-						height: 26
-					}
-				},
-				{
-					selector: 'edge',
-					style: {
-						width: 1.5,
-						'line-color': muted,
-						'target-arrow-color': muted,
-						'target-arrow-shape': 'triangle',
-						'curve-style': 'bezier',
-						label: 'data(label)',
-						'font-size': 10,
-						color: muted,
-						'text-rotation': 'autorotate',
-						'text-background-color': bg,
-						'text-background-opacity': 0.85,
-						'text-background-padding': '2px'
-					}
-				},
-				{ selector: 'node.selected', style: { 'border-width': 3, 'border-color': accent, width: 34, height: 34 } },
-				{
-					selector: 'edge.connected',
-					style: { width: 3, 'line-color': accent, 'target-arrow-color': accent, color: text, 'z-index': 10 }
-				},
-				{ selector: '.faded', style: { opacity: 0.15 } }
-			]
+			style: graphStyle()
 		});
 
 		cy.on('tap', 'node', (e) => {
@@ -272,6 +279,12 @@
 	});
 
 	onDestroy(() => cy?.destroy());
+
+	// Recolour the map when the theme flips.
+	$effect(() => {
+		void theme.current;
+		untrack(() => cy?.style(graphStyle()));
+	});
 
 	// Sync Svelte state → Cytoscape elements, adding/removing/updating in place
 	// so existing nodes keep their positions.

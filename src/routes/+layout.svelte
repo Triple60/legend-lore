@@ -3,6 +3,7 @@
 	import '#lib/ui/tokens.css';
 	import { resolve } from '$app/paths';
 	import { auth } from '#lib/session.svelte.ts';
+	import { theme } from '#lib/theme.svelte.ts';
 	import { isConfigured, supabase } from '#lib/supabase.ts';
 	import { onMount } from 'svelte';
 	import type { LayoutProps } from './$types';
@@ -20,6 +21,16 @@
 	<nav>
 		<a class="brand" href={resolve('/')}>Legend Lore</a>
 		<span class="spacer"></span>
+		<button
+			class="ghost small theme"
+			role="switch"
+			aria-checked={theme.current === 'dark'}
+			aria-label="Dark mode"
+			title={theme.current === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+			onclick={() => theme.toggle()}
+		>
+			<span aria-hidden="true">{theme.current === 'dark' ? '☾' : '☀'}</span>
+		</button>
 		{#if auth.user}
 			<span class="muted who">{auth.user.email ?? auth.user.user_metadata?.full_name}</span>
 			<button class="ghost small" onclick={() => supabase.auth.signOut()}>Sign out</button>
@@ -141,6 +152,11 @@
 	}
 	.spacer {
 		flex: 1;
+	}
+	.theme {
+		min-width: 2rem;
+		font-size: 0.95rem;
+		line-height: 1.4;
 	}
 	.who {
 		font-size: 0.85rem;
