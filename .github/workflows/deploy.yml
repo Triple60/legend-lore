@@ -1,24 +1,44 @@
 name: Deploy to GitHub Pages
 
+# Publishes one GitHub Pages site holding:
+#   /<repo>/                  the real app (main, connected to Supabase)
+#   /<repo>/preview/          a list of branch previews
+#   /<repo>/preview/<branch>/ a demo build of each branch: no Supabase, an
+#                             in-memory sample campaign that resets on reload
+#
+# GitHub Pages serves one site per repository, so every run rebuilds the
+# whole thing: main plus every branch that exists right now. A deleted
+# branch's preview disappears on the next run.
+#
+# Runs after the Test workflow finishes on any branch (so previews update on
+# every push), on pushes to main, and when a branch is deleted. Those
+# triggers all run in main's context, which the github-pages environment
+# allows to deploy by default.
+
 on:
   push:
     branches: [main]
+  workflow_run:
+    workflows: [Test]
+    types: [completed]
+  delete:
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
-  build:
+  site:
+    name: Build the real app (main)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -36,16 +56,121 @@ jobs:
           PUBLIC_SUPABASE_URL: ${{ vars.PUBLIC_SUPABASE_URL }}
           PUBLIC_SUPABASE_ANON_KEY: ${{ vars.PUBLIC_SUPABASE_ANON_KEY }}
           PUBLIC_EMAIL_LOGIN: ${{ vars.PUBLIC_EMAIL_LOGIN }}
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
+          name: site
           path: build
+          retention-days: 1
+
+  branches:
+    name: List branches
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - id: list
+        env:
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Each branch with a URL-safe folder name, e.g. claude/foo-bar → claude-foo-bar.
+          matrix=$(gh api "repos/$REPO/branches" --paginate --jq '.[].name' |
+            jq -R . | jq -sc 'map({branch: ., slug: (ascii_downcase | gsub("[^a-z0-9._-]+"; "-"))})')
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "$matrix" | jq -r '.[] | "\(.branch) → preview/\(.slug)/"'
+
+  preview:
+    name: Preview ${{ matrix.branch }}
+    needs: branches
+    if: needs.branches.outputs.matrix != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false # one broken branch mustn't block the others
+      matrix:
+        include: ${{ fromJSON(needs.branches.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.branch }}
+          persist-credentials: false
+      # No npm cache here: a cache saved from branch code could otherwise be
+      # restored into main's production build.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - id: supported
+        name: Check the branch has demo mode
+        env:
+          BRANCH: ${{ matrix.branch }}
+        run: |
+          if grep -q PUBLIC_DEMO src/env.ts 2>/dev/null; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::$BRANCH predates demo mode; no preview."
+          fi
+      - if: steps.supported.outputs.ok
+        run: npm ci
+      - if: steps.supported.outputs.ok
+        name: Build (demo mode)
+        run: npm run build
+        env:
+          BASE_PATH: /${{ github.event.repository.name }}/preview/${{ matrix.slug }}
+          PUBLIC_DEMO: 'true'
+      - if: steps.supported.outputs.ok
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-${{ matrix.slug }}
+          path: build
+          retention-days: 1
 
   deploy:
-    needs: build
+    name: Deploy
+    needs: [site, branches, preview]
+    # Deploy whenever main built, even if some branch previews failed.
+    if: ${{ !cancelled() && needs.site.result == 'success' }}
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: out
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: preview-*
+          path: previews
+      - name: Assemble the site
+        env:
+          MATRIX: ${{ needs.branches.outputs.matrix }}
+        run: |
+          mkdir -p out/preview
+          items=""
+          for dir in previews/preview-*; do
+            [ -d "$dir" ] || continue
+            slug=${dir#previews/preview-}
+            mv "$dir" "out/preview/$slug"
+            branch=$(echo "$MATRIX" | jq -r --arg s "$slug" '.[] | select(.slug == $s) | .branch | @html')
+            items="$items<li><a href=\"./$slug/\">$branch</a></li>"
+          done
+          cat > out/preview/index.html <<EOF
+          <!doctype html>
+          <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>Branch previews</title>
+          <style>body{font-family:system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem;line-height:1.6}</style>
+          </head><body>
+          <h1>Branch previews</h1>
+          <p>Demo builds with sample data. Changes stay in your browser tab and reset on reload.</p>
+          <ul>${items:-<li>No previews yet.</li>}</ul>
+          </body></html>
+          EOF
+          ls out/preview
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: out
       - id: deployment
         uses: actions/deploy-pages@v4

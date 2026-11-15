@@ -60,6 +60,22 @@ turn it on:
 3. Push to `main`. The **Deploy to GitHub Pages** workflow builds and
    publishes the site. **Keep Supabase awake** runs every three days.
 
+### Branch previews
+
+Every branch also gets a demo build at
+`https://<user>.github.io/<repo>/preview/<branch>/` (slashes in the branch
+name become dashes), and `/preview/` lists them all. Previews don't use
+Supabase: they load a sample campaign into memory, so anything you change
+lasts until you reload the page. Nothing to set up; the deploy workflow
+rebuilds the previews after the **Test** workflow finishes on any branch, and
+drops a branch's preview once the branch is deleted. Branches from before demo
+mode existed are skipped.
+
+Previews share the real app's web address (`<user>.github.io`), so their code
+could read what the real app keeps in the browser, including the login
+session. Only people who can push branches to this repository can publish a
+preview, so treat pushing a branch with the same care as merging to `main`.
+
 ## Using the map
 
 - **Add a node:** right-click empty space on the map (long-press on a touch
@@ -106,6 +122,14 @@ npm run dev
 
 `npm run check` type-checks; `npm run build` produces the static site in
 `build/`.
+
+To try the UI without Supabase, run it in demo mode, with the same sample
+campaign as the branch previews. Set `PUBLIC_DEMO=true` in `.env` (no other
+values needed), then `npm run dev`. Or as a one-off on macOS and Linux:
+
+```bash
+PUBLIC_DEMO=true npm run dev
+```
 
 ## Tests
 

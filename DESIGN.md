@@ -8,7 +8,8 @@ nobody outside the campaign can see it.
 
 | Topic | Decision |
 |---|---|
-| Hosting | Static SvelteKit (Svelte 5) app on GitHub Pages, built by GitHub Actions. |
+| Hosting | Static SvelteKit (Svelte 5) app on GitHub Pages, built by GitHub Actions. Each branch also gets a demo build under `/preview/<branch>/`. |
+| Demo mode | `PUBLIC_DEMO=true` swaps the Supabase client for an in-memory one (`src/lib/demo/`) seeded with a sample campaign. It mimics the database triggers (stamps, versions, tag cleanup, revisions) but not row-level security. Resets on reload. |
 | Backend | Supabase free tier: Postgres, Auth, Realtime. No server code of our own. |
 | Security | Enforced entirely by Postgres row-level security (RLS). The anon key in the browser is public by design. |
 | Login | Discord OAuth, plus a one-time code by email. No passwords stored. (SMS was ruled out: it costs money per message on every provider.) |
