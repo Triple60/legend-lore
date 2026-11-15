@@ -124,6 +124,32 @@
 		}
 	}
 
+	// --- Connections drawn on the map ---
+	let graphError = $state<string | null>(null);
+
+	/** Shift+click: connect the selected node to another, then ask for its annotation. */
+	async function connect(fromId: string, toId: string) {
+		if (!store) return;
+		graphError = null;
+		try {
+			const edge = await store.createEdge({ from_id: fromId, to_id: toId, annotation: '', session_number: null });
+			graph?.editEdgeLabel(edge.id);
+		} catch (e) {
+			graphError = (e as Error).message;
+		}
+	}
+
+	async function annotate(edgeId: string, annotation: string) {
+		const edge = store?.edges[edgeId];
+		if (!store || !edge) return;
+		graphError = null;
+		try {
+			await store.updateEdge(edge, { annotation });
+		} catch (e) {
+			graphError = (e as Error).message;
+		}
+	}
+
 	// --- Sidebar tools (shown when nothing is selected) ---
 	let inviteUrl = $state<string | null>(null);
 	let toolError = $state<string | null>(null);
@@ -232,7 +258,15 @@
 				{highlight}
 				onselect={select}
 				onbackground={newNode}
+				onconnect={connect}
+				onannotate={annotate}
 			/>
+			{#if graphError}
+				<p class="graph-error error">
+					{graphError}
+					<button class="ghost small" onclick={() => (graphError = null)} aria-label="Dismiss">✕</button>
+				</p>
+			{/if}
 			{#if store.liveNodes.length === 0}
 				<p class="empty muted">Your graph is empty. Click anywhere here or <strong>+ New node</strong> to add your first place, person, object or piece of lore.</p>
 			{/if}
@@ -417,6 +451,21 @@
 		inset: 40% 1rem auto;
 		text-align: center;
 		pointer-events: none;
+	}
+	.graph-error {
+		position: absolute;
+		top: 0.5rem;
+		left: 0.5rem;
+		right: 0.5rem;
+		margin: 0;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		background: var(--panel);
+		padding: 0.4rem 0.6rem;
+		border-radius: 6px;
+		z-index: 6;
 	}
 	.panel {
 		width: min(28rem, 40vw);

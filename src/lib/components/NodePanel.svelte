@@ -19,8 +19,10 @@
 	const holder = $derived(isEditing ? null : store.lockHolder(nodeId));
 	const nameIndex = $derived(buildNameIndex(store.liveNodes));
 	const notesHtml = $derived(node ? renderNotes(node.notes, nameIndex) : '');
-	const outgoing = $derived(store.liveEdges.filter((e) => e.from_id === nodeId));
-	const incoming = $derived(store.liveEdges.filter((e) => e.to_id === nodeId));
+	const connections = $derived([
+		...store.liveEdges.filter((e) => e.from_id === nodeId),
+		...store.liveEdges.filter((e) => e.to_id === nodeId && e.from_id !== nodeId)
+	]);
 
 	let saving = $state(false);
 	let error = $state<string | null>(null);
@@ -73,34 +75,10 @@
 	}
 
 	// --- Connections ---
-	let direction = $state<'out' | 'in'>('out');
-	let target = $state('');
-	let annotation = $state('');
-	let edgeSession = $state<number | null>(null);
+	// New connections are drawn on the map (Shift+click); here they're edited.
 	let editingEdge = $state<string | null>(null);
 	let editAnnotation = $state('');
 	let editSession = $state<number | null>(null);
-
-	async function addEdge(e: SubmitEvent) {
-		e.preventDefault();
-		const otherId = nameIndex.get(target.trim().toLowerCase());
-		if (!otherId) {
-			error = `No node named "${target}".`;
-			return;
-		}
-		const ends = direction === 'out' ? { from_id: nodeId, to_id: otherId } : { from_id: otherId, to_id: nodeId };
-		const created = await run(() =>
-			store.createEdge({
-				...ends,
-				annotation: annotation.trim(),
-				session_number: edgeSession ?? null
-			})
-		);
-		if (created) {
-			target = annotation = '';
-			edgeSession = null;
-		}
-	}
 
 	function beginEdgeEdit(edge: LoreEdge) {
 		editingEdge = edge.id;
@@ -134,6 +112,14 @@
 
 	const when = (iso: string) => new Date(iso).toLocaleString();
 </script>
+
+{#snippet end(id: string)}
+	{#if id === nodeId}
+		<strong>{store.nodes[id]?.name}</strong>
+	{:else}
+		<button class="link" onclick={() => onselect(id)}>{store.nodes[id]?.name ?? 'Unknown'}</button>
+	{/if}
+{/snippet}
 
 {#if !node}
 	<p class="muted">This node no longer exists.</p>
@@ -196,10 +182,11 @@
 
 	<section>
 		<h3>Connections</h3>
-		{#if !outgoing.length && !incoming.length}<p class="muted">None yet.</p>{/if}
+		{#if !connections.length}
+			<p class="muted">None yet. With this node selected, Shift+click another node on the map to connect them.</p>
+		{/if}
 		<ul class="edges">
-			{#each [...outgoing.map((e) => ({ e, out: true })), ...incoming.map((e) => ({ e, out: false }))] as { e, out } (e.id)}
-				{@const other = store.nodes[out ? e.to_id : e.from_id]}
+			{#each connections as e (e.id)}
 				<li>
 					{#if editingEdge === e.id}
 						<input bind:value={editAnnotation} placeholder="annotation" />
@@ -207,9 +194,9 @@
 						<button class="small" onclick={() => saveEdge(e)} disabled={saving}>Save</button>
 						<button class="ghost small" onclick={() => (editingEdge = null)}>Cancel</button>
 					{:else}
-						<span class="dir">{out ? '→' : '←'}</span>
-						{#if e.annotation}<em>{e.annotation}</em>{/if}
-						<button class="link" onclick={() => onselect(other.id)}>{other.name}</button>
+						{@render end(e.from_id)}
+						{#if e.annotation}<em>{e.annotation}</em>{:else}<span class="dir">→</span>{/if}
+						{@render end(e.to_id)}
 						{#if e.session_number !== null}<span class="muted">(s{e.session_number})</span>{/if}
 						<span class="spacer"></span>
 						<button class="ghost small" title="Edit" onclick={() => beginEdgeEdit(e)}>✎</button>
@@ -218,22 +205,6 @@
 				</li>
 			{/each}
 		</ul>
-
-		<form class="add-edge" onsubmit={addEdge}>
-			<select bind:value={direction} aria-label="Direction">
-				<option value="out">{node.name} →</option>
-				<option value="in">→ {node.name}</option>
-			</select>
-			<input bind:value={annotation} placeholder="annotation (e.g. rules)" maxlength="500" />
-			<input list="node-names" bind:value={target} placeholder="other node" required />
-			<input class="num" type="number" min="0" bind:value={edgeSession} placeholder="sess." />
-			<button type="submit" disabled={saving}>Connect</button>
-		</form>
-		<datalist id="node-names">
-			{#each store.liveNodes as n (n.id)}
-				{#if n.id !== nodeId}<option value={n.name}></option>{/if}
-			{/each}
-		</datalist>
 	</section>
 {/if}
 
@@ -319,17 +290,6 @@
 	}
 	.dir {
 		color: var(--muted);
-	}
-	.add-edge {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.4rem;
-		margin-top: 0.75rem;
-	}
-	.add-edge input:not(.num),
-	.add-edge select {
-		flex: 1 1 8rem;
-		min-width: 0;
 	}
 	.num {
 		width: 4.5rem;

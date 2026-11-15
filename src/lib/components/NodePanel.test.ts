@@ -41,8 +41,6 @@ function setup() {
 	return { user: userEvent.setup(), onselect, ontag };
 }
 
-const addEdgeForm = () => screen.getByRole('button', { name: 'Connect' }).closest('form')!;
-
 describe('NodePanel', () => {
 	it('shows the type, name, aliases, tags and first session', () => {
 		setup();
@@ -93,41 +91,10 @@ describe('NodePanel', () => {
 	});
 
 	describe('connections', () => {
-		// Regression: the session box is a number input, and calling .trim() on
-		// its value crashed when a session was entered.
-		it('adds an outgoing connection with a session number', async () => {
-			const createEdge = vi.spyOn(store, 'createEdge').mockResolvedValue(makeEdge({ from_id: 'strahd', to_id: 'village' }));
-			const { user } = setup();
-			const form = within(addEdgeForm());
-			await user.type(form.getByPlaceholderText(/annotation/), '  rules  ');
-			await user.type(form.getByPlaceholderText('other node'), 'village of barovia');
-			await user.type(form.getByPlaceholderText('sess.'), '4');
-			await user.click(form.getByRole('button', { name: 'Connect' }));
-			expect(createEdge).toHaveBeenCalledWith({ from_id: 'strahd', to_id: 'village', annotation: 'rules', session_number: 4 });
-			// The form resets after a successful add.
-			expect(form.getByPlaceholderText('other node')).toHaveValue('');
-			expect(form.getByPlaceholderText('sess.')).toHaveValue(null);
-		});
-
-		it('adds an incoming connection by alias, with no session', async () => {
-			const createEdge = vi.spyOn(store, 'createEdge').mockResolvedValue(makeEdge({ from_id: 'village', to_id: 'strahd' }));
-			const { user } = setup();
-			const form = within(addEdgeForm());
-			await user.selectOptions(form.getByLabelText('Direction'), 'in');
-			// Matched through the village's alias.
-			await user.type(form.getByPlaceholderText('other node'), 'barovia');
-			await user.click(form.getByRole('button', { name: 'Connect' }));
-			expect(createEdge).toHaveBeenCalledWith({ from_id: 'village', to_id: 'strahd', annotation: '', session_number: null });
-		});
-
-		it('reports an unknown node name', async () => {
-			const createEdge = vi.spyOn(store, 'createEdge');
-			const { user } = setup();
-			const form = within(addEdgeForm());
-			await user.type(form.getByPlaceholderText('other node'), 'Van Richten');
-			await user.click(form.getByRole('button', { name: 'Connect' }));
-			expect(screen.getByText('No node named "Van Richten".')).toBeInTheDocument();
-			expect(createEdge).not.toHaveBeenCalled();
+		it('has no form for adding connections (they are drawn on the map)', () => {
+			setup();
+			expect(screen.queryByRole('button', { name: 'Connect' })).not.toBeInTheDocument();
+			expect(screen.getByText(/Shift\+click another node/)).toBeInTheDocument();
 		});
 
 		it('lists connections in both directions', () => {
@@ -139,11 +106,16 @@ describe('NodePanel', () => {
 			};
 			setup();
 			const items = screen.getAllByRole('listitem');
-			expect(items[0]).toHaveTextContent('→');
-			expect(items[0]).toHaveTextContent('rules');
-			expect(items[0]).toHaveTextContent('(s2)');
-			expect(items[1]).toHaveTextContent('←');
-			expect(items[1]).toHaveTextContent('fears');
+			expect(items[0]).toHaveTextContent(/^Strahd rules Village of Barovia \(s2\)/);
+			expect(items[1]).toHaveTextContent(/^Ireena fears Strahd/);
+		});
+
+		it('shows an arrow for a connection with no annotation', async () => {
+			store.edges = { e: makeEdge({ id: 'e', from_id: 'strahd', to_id: 'village' }) };
+			const { user, onselect } = setup();
+			expect(screen.getByRole('listitem')).toHaveTextContent(/^Strahd → Village of Barovia/);
+			await user.click(within(screen.getByRole('listitem')).getByRole('button', { name: 'Village of Barovia' }));
+			expect(onselect).toHaveBeenCalledWith('village');
 		});
 
 		it('edits a connection’s session number (regression)', async () => {
@@ -174,11 +146,12 @@ describe('NodePanel', () => {
 		});
 
 		it('shows save errors', async () => {
-			vi.spyOn(store, 'createEdge').mockRejectedValue(new Error('permission denied'));
+			const edge = makeEdge({ id: 'e', from_id: 'strahd', to_id: 'village' });
+			store.edges = { e: edge };
+			vi.spyOn(store, 'updateEdge').mockRejectedValue(new Error('permission denied'));
 			const { user } = setup();
-			const form = within(addEdgeForm());
-			await user.type(form.getByPlaceholderText('other node'), 'Village of Barovia');
-			await user.click(form.getByRole('button', { name: 'Connect' }));
+			await user.click(screen.getByTitle('Edit'));
+			await user.click(screen.getByRole('button', { name: 'Save' }));
 			expect(await screen.findByText('permission denied')).toBeInTheDocument();
 		});
 	});

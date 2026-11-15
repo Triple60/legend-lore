@@ -1,6 +1,6 @@
 <script lang="ts">
 	import cytoscape, { type Core, type ElementDefinition, type Position } from 'cytoscape';
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, untrack } from 'svelte';
 	import { applyGraphFocus } from '#lib/graph-focus.ts';
 	import type { LoreEdge, LoreNode, NodeType } from '#lib/types.ts';
 
@@ -15,13 +15,62 @@
 		onselect: (id: string | null) => void;
 		/** A click/tap on empty canvas (not on a node or edge). */
 		onbackground: () => void;
+		/** Shift+click on a node while another is selected: connect selected → clicked. */
+		onconnect: (fromId: string, toId: string) => void;
+		/** Text typed into the label editor of an unlabelled edge. */
+		onannotate: (edgeId: string, annotation: string) => void;
 	}
 
-	let { campaignId, nodes, edges, types, selectedId, highlight, onselect, onbackground }: Props = $props();
+	let { campaignId, nodes, edges, types, selectedId, highlight, onselect, onbackground, onconnect, onannotate }: Props =
+		$props();
 
 	let container: HTMLDivElement;
 	let cy: Core | null = $state(null);
 	let fitPending = true;
+
+	// --- Inline label editor for an edge ---
+	let labelEdgeId = $state<string | null>(null);
+	let labelText = $state('');
+	let labelPos = $state<Position | null>(null);
+	let labelInput = $state<HTMLInputElement | null>(null);
+
+	/** Open the label editor on an edge (once it is on the map). */
+	export function editEdgeLabel(id: string) {
+		labelEdgeId = id;
+		labelText = '';
+		placeLabelEditor();
+	}
+
+	function placeLabelEditor() {
+		const e = labelEdgeId ? cy?.getElementById(labelEdgeId) : null;
+		labelPos = e && e.nonempty() ? { ...e.renderedMidpoint() } : null;
+	}
+
+	function closeLabelEditor() {
+		labelEdgeId = null;
+		labelPos = null;
+	}
+
+	function commitLabel() {
+		const id = labelEdgeId;
+		const text = labelText.trim();
+		closeLabelEditor();
+		if (id && text) onannotate(id, text);
+	}
+
+	function onLabelKey(e: KeyboardEvent) {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			commitLabel();
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			closeLabelEditor();
+		}
+	}
+
+	$effect(() => {
+		if (labelPos) labelInput?.focus();
+	});
 
 	// Layout positions are remembered per browser so the map doesn't reshuffle
 	// between visits. This is a viewer convenience only; nothing depends on it.
@@ -161,12 +210,23 @@
 			]
 		});
 
-		cy.on('tap', 'node', (e) => onselect(e.target.id()));
+		cy.on('tap', 'node', (e) => {
+			const id = e.target.id();
+			const shift = (e.originalEvent as MouseEvent | undefined)?.shiftKey;
+			if (shift && selectedId && selectedId !== id) onconnect(selectedId, id);
+			else onselect(id);
+		});
+		cy.on('tap', 'edge', (e) => {
+			if (!e.target.data('label')) editEdgeLabel(e.target.id());
+		});
 		cy.on('tap', (e) => {
 			// Cytoscape doesn't fire tap after a pan-drag, so this is a real click.
 			if (e.target === cy) onbackground();
 		});
 		cy.on('dragfree', 'node', savePositions);
+		// Keep the label editor on its edge as the map moves.
+		cy.on('viewport', placeLabelEditor);
+		cy.on('position', 'node', placeLabelEditor);
 	});
 
 	onDestroy(() => cy?.destroy());
@@ -228,15 +288,52 @@
 			capZoom();
 		}
 		if (g.nodes().nonempty()) fitPending = false;
+
+		// An edge just created (or filtered back in) can now take its editor.
+		untrack(() => {
+			if (!labelEdgeId) return;
+			if (edgeIds.has(labelEdgeId)) placeLabelEditor();
+			else closeLabelEditor();
+		});
 	});
 </script>
 
-<div class="graph" bind:this={container}></div>
+<div class="wrap">
+	<div class="graph" bind:this={container}></div>
+	{#if labelPos}
+		<input
+			class="edge-label"
+			bind:this={labelInput}
+			bind:value={labelText}
+			style:left="{labelPos.x}px"
+			style:top="{labelPos.y}px"
+			placeholder="annotation"
+			aria-label="Connection annotation"
+			maxlength="500"
+			onkeydown={onLabelKey}
+			onblur={commitLabel}
+		/>
+	{/if}
+</div>
 
 <style>
+	.wrap {
+		position: relative;
+		width: 100%;
+		height: 100%;
+		min-height: 300px;
+	}
 	.graph {
 		width: 100%;
 		height: 100%;
 		min-height: 300px;
+	}
+	.edge-label {
+		position: absolute;
+		transform: translate(-50%, -50%);
+		width: 12rem;
+		font-size: 0.8rem;
+		padding: 0.2rem 0.4rem;
+		z-index: 5;
 	}
 </style>
