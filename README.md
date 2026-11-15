@@ -60,6 +60,12 @@ turn it on:
 3. Push to `main`. The **Deploy to GitHub Pages** workflow builds and
    publishes the site. **Keep Supabase awake** runs every three days.
 
+## Adding nodes
+
+Click any empty space in the graph (or **+ New node**) to open the new-node
+form with the cursor in Name. Clicking empty space again while the form is open
+just puts the cursor back in Name; it doesn't clear what you've typed.
+
 ## Keyboard shortcuts
 
 On the campaign page, when you aren't typing in a field:

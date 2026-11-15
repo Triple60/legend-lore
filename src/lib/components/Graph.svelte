@@ -13,9 +13,11 @@
 		/** Search results: when set, nodes outside it are faded. */
 		highlight: Set<string> | null;
 		onselect: (id: string | null) => void;
+		/** A click/tap on empty canvas (not on a node or edge). */
+		onbackground: () => void;
 	}
 
-	let { campaignId, nodes, edges, types, selectedId, highlight, onselect }: Props = $props();
+	let { campaignId, nodes, edges, types, selectedId, highlight, onselect, onbackground }: Props = $props();
 
 	let container: HTMLDivElement;
 	let cy: Core | null = $state(null);
@@ -161,7 +163,8 @@
 
 		cy.on('tap', 'node', (e) => onselect(e.target.id()));
 		cy.on('tap', (e) => {
-			if (e.target === cy) onselect(null);
+			// Cytoscape doesn't fire tap after a pan-drag, so this is a real click.
+			if (e.target === cy) onbackground();
 		});
 		cy.on('dragfree', 'node', savePositions);
 	});
