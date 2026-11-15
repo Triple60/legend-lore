@@ -45,12 +45,12 @@
 
 <form class="node-form" onsubmit={submit}>
 	<label>
-		Name
+		Name <span class="hint req">required</span>
 		<input bind:value={name} required maxlength="200" placeholder="e.g. Strahd von Zarovich" />
 	</label>
 	<div class="row">
 		<label>
-			Type
+			Type <span class="hint req">required</span>
 			<select bind:value={typeId} required>
 				{#each types as t (t.id)}
 					<option value={t.id}>{t.label}</option>
@@ -58,20 +58,20 @@
 			</select>
 		</label>
 		<label class="session">
-			Session
+			Session <span class="hint">optional</span>
 			<input type="number" min="0" step="1" bind:value={session} placeholder="—" />
 		</label>
 	</div>
 	<label>
-		Also known as <span class="hint">comma-separated</span>
+		Also known as <span class="hint">optional · comma-separated</span>
 		<input bind:value={aliases} placeholder="The Devil, The Ancient" />
 	</label>
 	<label>
-		Tags <span class="hint">comma-separated</span>
+		Tags <span class="hint">optional · comma-separated</span>
 		<input bind:value={tags} placeholder="vampire, barovia, villain" />
 	</label>
 	<label>
-		Notes <span class="hint">Markdown; link nodes with [[Name]]</span>
+		Notes <span class="hint">optional · Markdown; link nodes with [[Name]]</span>
 		<textarea bind:value={notes} rows="12"></textarea>
 	</label>
 	<div class="actions">
@@ -106,6 +106,10 @@
 	.hint {
 		font-size: 0.75rem;
 		opacity: 0.8;
+	}
+	.req {
+		color: var(--accent);
+		opacity: 1;
 	}
 	textarea {
 		font-family: var(--mono);
