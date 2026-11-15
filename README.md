@@ -76,3 +76,23 @@ npm run dev
 
 `npm run check` type-checks; `npm run build` produces the static site in
 `build/`.
+
+## Tests
+
+```bash
+npm test
+```
+
+`npm run test:watch` re-runs them as you edit. No Supabase project or network
+access is needed. There are two groups:
+
+- **app** (`src/**/*.test.ts`): search, Markdown and wiki links, the graph
+  filters, the campaign store (against a fake Supabase client), and the node
+  form and node panel rendered in a simulated browser.
+- **db** (`supabase/tests/`): runs the real migrations in an in-memory Postgres
+  ([PGlite](https://pglite.dev)) and checks the rules that live in SQL:
+  row-level security, invites, cleanup of tags and aliases, version stamps and
+  history.
+
+GitHub Actions runs the type check and tests on every push. On `main`, a
+failing test stops the deploy.

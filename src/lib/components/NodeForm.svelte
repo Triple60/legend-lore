@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { NodeInput } from '#lib/campaign.svelte.ts';
+	import { splitList } from '#lib/lists.ts';
 	import type { LoreNode, NodeType } from '#lib/types.ts';
 	import { untrack } from 'svelte';
 
@@ -12,12 +13,6 @@
 	}
 
 	let { types, initial = null, saving = false, onsave, oncancel }: Props = $props();
-
-	const splitList = (s: string) =>
-		s
-			.split(',')
-			.map((x) => x.trim())
-			.filter(Boolean);
 
 	// Form fields are seeded once from `initial`; later realtime updates to the
 	// same node are blocked by the edit lock, so there's nothing to re-sync.

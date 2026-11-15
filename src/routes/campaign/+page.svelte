@@ -6,6 +6,7 @@
 	import Graph from '#lib/components/Graph.svelte';
 	import NodeForm from '#lib/components/NodeForm.svelte';
 	import NodePanel from '#lib/components/NodePanel.svelte';
+	import { filterGraph } from '#lib/filter.ts';
 	import { searchNodes } from '#lib/search.ts';
 	import { auth } from '#lib/session.svelte.ts';
 	import { untrack } from 'svelte';
@@ -42,23 +43,11 @@
 	let saving = $state(false);
 	let createError = $state<string | null>(null);
 
-	const sessionCap = $derived(asOfSession ?? null);
-	const visibleNodes = $derived(
-		(store?.liveNodes ?? []).filter(
-			(n) =>
-				!hiddenTypes.includes(n.type_id) &&
-				(sessionCap === null || n.session_number === null || n.session_number <= sessionCap)
-		)
+	const visible = $derived(
+		filterGraph(store?.liveNodes ?? [], store?.liveEdges ?? [], { hiddenTypes, asOfSession: asOfSession ?? null })
 	);
-	const visibleIds = $derived(new Set(visibleNodes.map((n) => n.id)));
-	const visibleEdges = $derived(
-		(store?.liveEdges ?? []).filter(
-			(e) =>
-				visibleIds.has(e.from_id) &&
-				visibleIds.has(e.to_id) &&
-				(sessionCap === null || e.session_number === null || e.session_number <= sessionCap)
-		)
-	);
+	const visibleNodes = $derived(visible.visibleNodes);
+	const visibleEdges = $derived(visible.visibleEdges);
 	const hits = $derived(searchNodes(visibleNodes, query));
 	const highlight = $derived.by(() => {
 		if (!query.trim()) return null;
