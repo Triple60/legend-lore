@@ -27,7 +27,7 @@
 	let typeId = $state(seed?.type_id ?? defaultType);
 	let aliases = $state(seed?.aliases.join(', ') ?? '');
 	let tags = $state(seed?.tags.join(', ') ?? '');
-	let session = $state(seed?.session_number?.toString() ?? '');
+	let session = $state<number | null>(seed?.session_number ?? null);
 	let notes = $state(seed?.notes ?? '');
 
 	function submit(e: SubmitEvent) {
@@ -38,7 +38,7 @@
 			aliases: splitList(aliases),
 			tags: splitList(tags),
 			notes,
-			session_number: session.trim() === '' ? null : Number(session)
+			session_number: session ?? null
 		});
 	}
 </script>

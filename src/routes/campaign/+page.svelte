@@ -38,11 +38,11 @@
 	let creating = $state(false);
 	let query = $state('');
 	let hiddenTypes = $state<string[]>([]);
-	let asOfSession = $state('');
+	let asOfSession = $state<number | null>(null);
 	let saving = $state(false);
 	let createError = $state<string | null>(null);
 
-	const sessionCap = $derived(asOfSession.trim() === '' ? null : Number(asOfSession));
+	const sessionCap = $derived(asOfSession ?? null);
 	const visibleNodes = $derived(
 		(store?.liveNodes ?? []).filter(
 			(n) =>
