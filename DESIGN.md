@@ -15,7 +15,7 @@ nobody outside the campaign can see it.
 | Login | Discord OAuth, plus a one-time code by email. No passwords stored. (SMS was ruled out: it costs money per message on every provider.) |
 | Roles | Everyone in a campaign is an editor. The creator is also *owner* (can rename/delete the campaign and remove members). Viewing requires login + membership. |
 | Joining | Any member creates an invite link (`/join?token=…`, valid 7 days). |
-| Node types | A per-campaign list, seeded with Place / Person / Object / Lore. Any member can add types. Each node has exactly one type. |
+| Node types | A per-campaign list, seeded with Place / Person / Object / Lore. Any member can add types (the + after the last type in the toolbar) and rename or recolour any type, the starting ones included (double-click, right-click or F2 on it). Each node has exactly one type. |
 | Tags | Free-form strings on nodes. Tags are how groups are tracked (there is no containment). |
 | Edges | Top-level records, directed, with a free-text annotation. |
 | Containment | Dropped. Use tags for groups and edges for "located in". |
@@ -67,7 +67,7 @@ Integrity rules enforced in the database:
 ## Later
 
 - Live co-editing of notes (Yjs over Supabase Realtime broadcast).
-- Rename/recolour/delete node types in the UI.
+- Delete or reorder node types in the UI.
 - Edge history UI (edges already record revisions).
 - JSON export/import for backups.
 - Neighbourhood view ("N hops from this node") for very large graphs.

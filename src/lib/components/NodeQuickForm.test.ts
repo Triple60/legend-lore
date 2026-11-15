@@ -51,4 +51,21 @@ describe('NodeQuickForm', () => {
 		await user.click(screen.getByRole('button', { name: 'Open in side panel' }));
 		expect(onexpand).toHaveBeenCalledWith(expect.objectContaining({ name: 'Strahd', type_id: 'place' }));
 	});
+
+	it('saves a description as the node’s notes, keeping new lines', async () => {
+		const { user, onsave } = setup();
+		await user.type(screen.getByLabelText('Name'), 'Strahd');
+		await user.type(screen.getByLabelText('Description'), 'Line one{Enter}Line two');
+		expect(onsave).not.toHaveBeenCalled();
+		await user.keyboard('{Control>}{Enter}{/Control}');
+		expect(onsave).toHaveBeenCalledWith(expect.objectContaining({ name: 'Strahd', notes: 'Line one\nLine two' }));
+	});
+
+	it('hands the description to the side panel too', async () => {
+		const { user, onexpand } = setup();
+		await user.type(screen.getByLabelText('Name'), 'Strahd');
+		await user.type(screen.getByLabelText('Description'), 'A vampire');
+		await user.click(screen.getByRole('button', { name: 'Open in side panel' }));
+		expect(onexpand).toHaveBeenCalledWith(expect.objectContaining({ notes: 'A vampire' }));
+	});
 });

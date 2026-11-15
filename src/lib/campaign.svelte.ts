@@ -290,6 +290,13 @@ export class CampaignStore {
 		this.types[data.id] = data;
 	}
 
+	/** Rename or recolour a node type (any type, including the starting four). */
+	async updateType(type: NodeType, patch: Partial<Pick<NodeType, 'label' | 'color'>>) {
+		const { data, error } = await supabase.from('node_types').update(patch).eq('id', type.id).select().single();
+		fail(error);
+		this.types[data.id] = data;
+	}
+
 	async history(entityId: string): Promise<Revision[]> {
 		const { data, error } = await supabase
 			.from('revisions')

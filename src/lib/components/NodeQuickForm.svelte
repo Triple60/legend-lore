@@ -1,11 +1,13 @@
 <!--
-	The quick-add popover's form: just a name, type and tags. "Open in side
-	panel" hands what's typed so far to the full form.
+	The quick-add popover's form: a name, type, tags and an optional
+	description (the node's notes) that grows as you type. "Open in side panel"
+	hands what's typed so far to the full form.
 -->
 <script lang="ts">
 	import type { NodeInput } from '#lib/campaign.svelte.ts';
 	import { splitList } from '#lib/lists.ts';
 	import type { NodeType } from '#lib/types.ts';
+	import { autogrow } from '#lib/ui/autogrow.ts';
 	import { onMount, untrack } from 'svelte';
 
 	interface Props {
@@ -21,6 +23,7 @@
 	let name = $state('');
 	let typeId = $state(untrack(() => types[0]?.id ?? ''));
 	let tags = $state('');
+	let notes = $state('');
 
 	let nameInput: HTMLInputElement;
 	export function focusName() {
@@ -33,13 +36,21 @@
 		type_id: typeId,
 		aliases: [],
 		tags: splitList(tags),
-		notes: '',
+		notes,
 		session_number: null
 	});
 
 	function submit(e: SubmitEvent) {
 		e.preventDefault();
 		if (name.trim()) onsave(draft());
+	}
+
+	// In the description, Enter makes a new line; Ctrl/Cmd+Enter saves.
+	function onNotesKey(e: KeyboardEvent) {
+		if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+			e.preventDefault();
+			if (name.trim()) onsave(draft());
+		}
 	}
 </script>
 
@@ -62,6 +73,15 @@
 		{/each}
 	</div>
 	<input bind:value={tags} placeholder="Tags, comma-separated" aria-label="Tags" />
+	<textarea
+		class="notes"
+		bind:value={notes}
+		use:autogrow={12}
+		rows="2"
+		placeholder="Add a description (Markdown; [[Name]] links a node)"
+		aria-label="Description"
+		onkeydown={onNotesKey}
+	></textarea>
 	{#if error}<p class="error">{error}</p>{/if}
 	<div class="actions">
 		<button type="button" class="ghost" onclick={() => onexpand(draft())}>Open in side panel</button>
@@ -120,6 +140,11 @@
 		height: 0.6rem;
 		border-radius: 50%;
 		background: var(--dot);
+	}
+	.notes {
+		resize: none;
+		line-height: 1.45;
+		min-height: 2.6rem;
 	}
 	.error {
 		margin: 0;

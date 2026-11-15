@@ -1,8 +1,10 @@
 <script lang="ts">
-	import type { CampaignStore, NodeInput } from '#lib/campaign.svelte.ts';
+	import type { CampaignStore } from '#lib/campaign.svelte.ts';
+	import { splitList } from '#lib/lists.ts';
 	import { buildNameIndex, renderNotes } from '#lib/markdown.ts';
 	import type { LoreEdge, Revision } from '#lib/types.ts';
-	import NodeForm from './NodeForm.svelte';
+	import { autogrow } from '#lib/ui/autogrow.ts';
+	import { tick } from 'svelte';
 
 	interface Props {
 		store: CampaignStore;
@@ -36,6 +38,7 @@
 			lastId = nodeId;
 			error = null;
 			history = null;
+			section = null;
 		}
 	});
 
@@ -51,13 +54,97 @@
 		}
 	}
 
-	async function startEdit() {
-		if (!(await store.beginEdit(nodeId))) error = `${store.lockHolder(nodeId)?.name ?? 'Someone'} is editing this.`;
+	// --- Click-to-edit (like a Trello card) ---
+	// Clicking the details or the notes opens just that part for editing, with
+	// Save and Discard changes. Opening one takes the node's edit lock, so
+	// only one person edits a node at a time; closing it gives the lock back.
+	type Section = 'details' | 'notes';
+	let section = $state<Section | null>(null);
+	/** The open section, if we still hold the lock (Esc on the page or losing it closes it). */
+	const open = $derived(isEditing ? section : null);
+
+	let draftName = $state('');
+	let draftType = $state('');
+	let draftSession = $state<number | null>(null);
+	let draftAliases = $state('');
+	let draftTags = $state('');
+	let draftNotes = $state('');
+
+	let nameInput = $state<HTMLInputElement | null>(null);
+	let notesInput = $state<HTMLTextAreaElement | null>(null);
+
+	async function openSection(which: Section) {
+		if (open === which || saving) return;
+		if (!isEditing && !(await store.beginEdit(nodeId))) {
+			error = `${store.lockHolder(nodeId)?.name ?? 'Someone'} is editing this.`;
+			return;
+		}
+		error = null;
+		if (which === 'details') {
+			draftName = node.name;
+			draftType = node.type_id;
+			draftSession = node.session_number;
+			draftAliases = node.aliases.join(', ');
+			draftTags = node.tags.join(', ');
+		} else {
+			draftNotes = node.notes;
+		}
+		section = which;
+		await tick();
+		if (which === 'details') nameInput?.focus();
+		else {
+			notesInput?.focus();
+			notesInput?.setSelectionRange(draftNotes.length, draftNotes.length);
+		}
 	}
 
-	async function save(input: NodeInput) {
-		const ok = await run(() => store.updateNode(node, input));
-		if (ok) await store.endEdit();
+	async function discard() {
+		section = null;
+		error = null;
+		await store.endEdit();
+	}
+
+	async function saveSection() {
+		if (open === 'details' && !draftName.trim()) return;
+		const patch =
+			open === 'details'
+				? {
+						name: draftName.trim(),
+						type_id: draftType,
+						session_number: draftSession ?? null,
+						aliases: splitList(draftAliases),
+						tags: splitList(draftTags)
+					}
+				: { notes: draftNotes };
+		if (await run(() => store.updateNode(node, patch))) await discard();
+	}
+
+	/** In an open editor: Esc discards, Ctrl/Cmd+Enter saves. */
+	function onEditorKey(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			e.preventDefault();
+			e.stopPropagation();
+			discard();
+		} else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+			e.preventDefault();
+			saveSection();
+		}
+	}
+
+	/** A click on a read-only section opens it, unless it was on a link or button inside. */
+	function onSectionClick(e: MouseEvent, which: Section) {
+		if ((e.target as HTMLElement).closest('a, button')) return;
+		// Don't open the editor when the person was selecting text to copy.
+		if (getSelection()?.toString()) return;
+		openSection(which);
+	}
+
+	function onSectionKey(e: KeyboardEvent, which: Section) {
+		if (e.target !== e.currentTarget) return;
+		if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault();
+			openSection(which);
+		}
 	}
 
 	async function remove() {
@@ -100,15 +187,20 @@
 		if (confirm('Remove this connection?')) await run(() => store.deleteEdge(edge));
 	}
 
-	// Intercept [[wiki link]] clicks rendered as #node:<id>.
+	// Intercept [[wiki link]] clicks rendered as #node:<id>; a click anywhere
+	// else in the notes opens them for editing.
 	function onNotesClick(e: MouseEvent) {
 		const a = (e.target as HTMLElement).closest('a');
 		const href = a?.getAttribute('href');
 		if (href?.startsWith('#node:')) {
 			e.preventDefault();
 			onselect(href.slice('#node:'.length));
+			return;
 		}
+		if (!locked) onSectionClick(e, 'notes');
 	}
+
+	const locked = $derived(Boolean(holder));
 
 	const when = (iso: string) => new Date(iso).toLocaleString();
 </script>
@@ -123,41 +215,89 @@
 
 {#if !node}
 	<p class="muted">This node no longer exists.</p>
-{:else if isEditing}
-	<h2>Editing</h2>
-	{#if error}<p class="error">{error}</p>{/if}
-	<NodeForm types={store.sortedTypes} initial={node} {saving} onsave={save} oncancel={() => store.endEdit()} />
 {:else}
-	<header>
-		<span class="type" style:background={type?.color}>{type?.label ?? 'Unknown'}</span>
-		<h2>{node.name}</h2>
-		{#if node.aliases.length}<p class="aka">a.k.a. {node.aliases.join(', ')}</p>{/if}
-	</header>
-
 	{#if store.lostLockTo}
 		<p class="error">{store.lostLockTo} started editing first, so your edit was closed.</p>
 	{/if}
 	{#if holder}<p class="lock">🔒 {holder.name} is editing this…</p>{/if}
 	{#if error}<p class="error">{error}</p>{/if}
 
-	<div class="toolbar">
-		<button onclick={startEdit} disabled={Boolean(holder) || saving}>Edit</button>
-		<button class="ghost" onclick={toggleHistory}>{history ? 'Hide history' : 'History'}</button>
-		<button class="ghost danger" onclick={remove} disabled={Boolean(holder) || saving}>Delete</button>
-	</div>
-
-	<dl class="meta">
-		{#if node.session_number !== null}<dt>First seen</dt><dd>Session {node.session_number}</dd>{/if}
-		<dt>Updated</dt><dd>{when(node.updated_at)} by {store.nameOf(node.updated_by)}</dd>
-	</dl>
-
-	{#if node.tags.length}
-		<div class="tags">
-			{#each node.tags as tag (tag)}
-				<button class="tag" onclick={() => ontag(tag)}>#{tag}</button>
-			{/each}
+	{#if open === 'details'}
+		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+		<form
+			class="editor details-form"
+			aria-label="Edit details"
+			onsubmit={(e) => {
+				e.preventDefault();
+				saveSection();
+			}}
+			onkeydown={onEditorKey}
+		>
+			<label>
+				Name
+				<input class="name-input" bind:this={nameInput} bind:value={draftName} required maxlength="200" />
+			</label>
+			<div class="row">
+				<label>
+					Type
+					<select bind:value={draftType} required>
+						{#each store.sortedTypes as t (t.id)}
+							<option value={t.id}>{t.label}</option>
+						{/each}
+					</select>
+				</label>
+				<label class="session">
+					First seen <input type="number" min="0" step="1" bind:value={draftSession} placeholder="session" />
+				</label>
+			</div>
+			<label>
+				Also known as <span class="hint">comma-separated</span>
+				<input bind:value={draftAliases} placeholder="The Devil, The Ancient" />
+			</label>
+			<label>
+				Tags <span class="hint">comma-separated</span>
+				<input bind:value={draftTags} placeholder="vampire, barovia, villain" />
+			</label>
+			<div class="editor-actions">
+				<button type="submit" disabled={saving || !draftName.trim()}>{saving ? 'Saving…' : 'Save'}</button>
+				<button type="button" class="ghost" onclick={discard} disabled={saving}>Discard changes</button>
+			</div>
+		</form>
+	{:else}
+		<!-- Focusable so the keyboard can open it too (Enter); it holds tag buttons, so it can't itself be a button. -->
+		<!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_no_noninteractive_tabindex -->
+		<div
+			class="editable"
+			role="group"
+			class:locked
+			tabindex={locked ? -1 : 0}
+			aria-label={locked ? undefined : 'Edit details'}
+			title={locked ? undefined : 'Click to edit'}
+			onclick={(e) => !locked && onSectionClick(e, 'details')}
+			onkeydown={(e) => !locked && onSectionKey(e, 'details')}
+		>
+			<header>
+				<span class="type" style:background={type?.color}>{type?.label ?? 'Unknown'}</span>
+				<h2>{node.name}</h2>
+				{#if node.aliases.length}<p class="aka">a.k.a. {node.aliases.join(', ')}</p>{/if}
+			</header>
+			{#if node.session_number !== null}<p class="seen">First seen in session {node.session_number}</p>{/if}
+			{#if node.tags.length}
+				<div class="tags">
+					{#each node.tags as tag (tag)}
+						<button class="tag" onclick={() => ontag(tag)}>#{tag}</button>
+					{/each}
+				</div>
+			{/if}
 		</div>
 	{/if}
+
+	<p class="meta">Updated {when(node.updated_at)} by {store.nameOf(node.updated_by)}</p>
+
+	<div class="toolbar">
+		<button class="ghost" onclick={toggleHistory}>{history ? 'Hide history' : 'History'}</button>
+		<button class="ghost danger" onclick={remove} disabled={locked || saving}>Delete</button>
+	</div>
 
 	{#if history}
 		<section>
@@ -167,7 +307,7 @@
 					<li>
 						<span>v{rev.version} · {rev.op} · {store.nameOf(rev.changed_by)} · {when(rev.changed_at)}</span>
 						{#if rev.version !== node.version}
-							<button class="ghost small" onclick={() => restore(rev)} disabled={Boolean(holder) || saving}>Restore</button>
+							<button class="ghost small" onclick={() => restore(rev)} disabled={locked || saving}>Restore</button>
 						{/if}
 					</li>
 				{/each}
@@ -175,10 +315,42 @@
 		</section>
 	{/if}
 
-	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-	<div class="notes" onclick={onNotesClick}>
-		{#if node.notes.trim()}{@html notesHtml}{:else}<p class="muted">No notes yet.</p>{/if}
-	</div>
+	<section>
+		<h3>Notes</h3>
+		{#if open === 'notes'}
+			<div class="editor">
+				<textarea
+					class="notes-input"
+					bind:this={notesInput}
+					bind:value={draftNotes}
+					use:autogrow
+					rows="4"
+					aria-label="Notes"
+					placeholder="Markdown; link nodes with [[Name]]"
+					onkeydown={onEditorKey}
+				></textarea>
+				<div class="editor-actions">
+					<button onclick={saveSection} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+					<button class="ghost" onclick={discard} disabled={saving}>Discard changes</button>
+				</div>
+			</div>
+		{:else}
+			<!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_no_noninteractive_tabindex -->
+			<div
+				class="notes editable"
+				role="group"
+				class:locked
+				class:empty={!node.notes.trim()}
+				tabindex={locked ? -1 : 0}
+				aria-label={locked ? undefined : 'Edit notes'}
+				title={locked ? undefined : 'Click to edit'}
+				onclick={onNotesClick}
+				onkeydown={(e) => !locked && onSectionKey(e, 'notes')}
+			>
+				{#if node.notes.trim()}{@html notesHtml}{:else}<p class="muted">Add notes…</p>{/if}
+			</div>
+		{/if}
+	</section>
 
 	<section>
 		<h3>Connections</h3>
@@ -230,21 +402,87 @@
 		margin: 0.75rem 0;
 	}
 	.meta {
-		display: grid;
-		grid-template-columns: auto 1fr;
-		gap: 0.15rem 0.75rem;
 		font-size: 0.8rem;
 		color: var(--muted);
-		margin: 0 0 0.75rem;
+		margin: 0.5rem 0 0;
 	}
-	.meta dd {
-		margin: 0;
+	.seen {
+		margin: 0.35rem 0 0;
+		font-size: 0.85rem;
+		color: var(--muted);
 	}
 	.tags {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.35rem;
-		margin-bottom: 0.75rem;
+		margin-top: 0.5rem;
+	}
+
+	/* Read-only sections that open for editing when clicked. */
+	.editable {
+		margin: 0 -0.5rem;
+		padding: 0.4rem 0.5rem;
+		border-radius: var(--radius-sm);
+		cursor: text;
+		transition: background-color var(--dur) var(--ease);
+	}
+	.editable:not(.locked):hover {
+		background: var(--hover);
+	}
+	.editable:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: 1px;
+	}
+	.editable.locked {
+		cursor: default;
+	}
+	.notes.empty {
+		background: var(--hover);
+		min-height: 3.5rem;
+	}
+	.notes.empty p {
+		margin: 0.3rem 0;
+	}
+	.editor {
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+	}
+	.editor label {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		font-size: 0.85rem;
+		color: var(--muted);
+	}
+	.editor .row {
+		display: flex;
+		gap: 0.75rem;
+	}
+	.editor .row label {
+		flex: 1;
+		min-width: 0;
+	}
+	.editor .session {
+		flex: 0 0 6.5rem;
+	}
+	.hint {
+		font-size: 0.75rem;
+		opacity: 0.8;
+	}
+	.name-input {
+		font-size: 1.15rem;
+		font-weight: 600;
+	}
+	.notes-input {
+		font-family: var(--mono);
+		line-height: 1.45;
+		resize: none;
+		min-height: 6rem;
+	}
+	.editor-actions {
+		display: flex;
+		gap: 0.5rem;
 	}
 	.notes {
 		line-height: 1.55;

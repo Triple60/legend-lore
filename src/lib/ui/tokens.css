@@ -77,6 +77,33 @@
 	color-scheme: light;
 }
 
+/*
+ * Switching theme fades the colours over --theme-fade instead of snapping.
+ * The colour tokens are registered as <color>s so the browser can animate
+ * them; everything that reads them (and inherits them) follows along. The
+ * class is only on <html> during a switch (theme.svelte.ts), so ordinary
+ * hovers and focus rings aren't slowed down.
+ */
+@property --bg { syntax: '<color>'; inherits: true; initial-value: #15131a; }
+@property --panel { syntax: '<color>'; inherits: true; initial-value: #1f1c26; }
+@property --border { syntax: '<color>'; inherits: true; initial-value: #34303f; }
+@property --text { syntax: '<color>'; inherits: true; initial-value: #e8e4ef; }
+@property --muted { syntax: '<color>'; inherits: true; initial-value: #9a93a8; }
+@property --accent { syntax: '<color>'; inherits: true; initial-value: #d4a24c; }
+@property --danger { syntax: '<color>'; inherits: true; initial-value: #e0605a; }
+@property --input { syntax: '<color>'; inherits: true; initial-value: #26222f; }
+@property --hover { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --scrim { syntax: '<color>'; inherits: true; initial-value: transparent; }
+
+:root {
+	--theme-fade: 2s; /* keep in step with THEME_FADE_MS */
+}
+:root.theme-fading {
+	transition-property: --bg, --panel, --border, --text, --muted, --accent, --danger, --input, --hover, --scrim;
+	transition-duration: var(--theme-fade);
+	transition-timing-function: ease-in-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
 	:root {
 		--dur: 0ms;

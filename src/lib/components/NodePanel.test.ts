@@ -48,7 +48,7 @@ describe('NodePanel', () => {
 		expect(screen.getByText('Person')).toBeInTheDocument();
 		expect(screen.getByText('a.k.a. The Devil, The Ancient')).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: '#vampire' })).toBeInTheDocument();
-		expect(screen.getByText('Session 1')).toBeInTheDocument();
+		expect(screen.getByText('First seen in session 1')).toBeInTheDocument();
 	});
 
 	it('hides the a.k.a. line when there are no aliases', () => {
@@ -75,19 +75,84 @@ describe('NodePanel', () => {
 		expect(screen.getByText(/no longer exists/i)).toBeInTheDocument();
 	});
 
-	it('opens the edit form when the lock is free', async () => {
-		const { user } = setup();
-		await user.click(screen.getByRole('button', { name: 'Edit' }));
-		expect(screen.getByRole('heading', { name: 'Editing' })).toBeInTheDocument();
-		expect(screen.getByLabelText(/^name/i)).toHaveValue('Strahd');
+	it('has no Edit button', () => {
+		setup();
+		expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
 	});
 
-	it('blocks editing while someone else holds the lock', () => {
+	it('opens the notes for editing when they are clicked, and saves them', async () => {
+		const updateNode = vi.spyOn(store, 'updateNode').mockResolvedValue(strahd);
+		const { user } = setup();
+		await user.click(screen.getByRole('group', { name: 'Edit notes' }));
+		const box = screen.getByRole('textbox', { name: 'Notes' });
+		expect(box).toHaveValue(strahd.notes);
+		expect(box).toHaveFocus();
+		expect(store.editing).toBe('strahd');
+		await user.type(box, ' And the castle.');
+		await user.click(screen.getByRole('button', { name: 'Save' }));
+		expect(updateNode).toHaveBeenCalledWith(strahd, { notes: `${strahd.notes} And the castle.` });
+		expect(screen.queryByRole('textbox', { name: 'Notes' })).not.toBeInTheDocument();
+		expect(store.editing).toBeNull();
+	});
+
+	it('discards note changes and gives up the lock', async () => {
+		const updateNode = vi.spyOn(store, 'updateNode');
+		const { user } = setup();
+		await user.click(screen.getByRole('group', { name: 'Edit notes' }));
+		await user.type(screen.getByRole('textbox', { name: 'Notes' }), ' scribble');
+		await user.click(screen.getByRole('button', { name: 'Discard changes' }));
+		expect(updateNode).not.toHaveBeenCalled();
+		expect(store.editing).toBeNull();
+		expect(screen.getByRole('group', { name: 'Edit notes' })).toHaveTextContent('Lives above the village.');
+	});
+
+	it('discards on Esc', async () => {
+		const { user } = setup();
+		await user.click(screen.getByRole('group', { name: 'Edit notes' }));
+		await user.keyboard('{Escape}');
+		expect(screen.queryByRole('textbox', { name: 'Notes' })).not.toBeInTheDocument();
+	});
+
+	it('follows a wiki link instead of opening the editor', async () => {
+		const { user } = setup();
+		await user.click(screen.getByRole('link', { name: 'the village' }));
+		expect(screen.queryByRole('textbox', { name: 'Notes' })).not.toBeInTheDocument();
+	});
+
+	it('edits the details (name, type, aliases, tags) when they are clicked', async () => {
+		const updateNode = vi.spyOn(store, 'updateNode').mockResolvedValue(strahd);
+		const { user } = setup();
+		await user.click(screen.getByRole('heading', { name: 'Strahd' }));
+		const name = screen.getByLabelText('Name');
+		expect(name).toHaveValue('Strahd');
+		await user.clear(name);
+		await user.type(name, 'Count Strahd');
+		await user.selectOptions(screen.getByLabelText('Type'), 'place');
+		await user.type(screen.getByLabelText(/Tags/), ', villain');
+		await user.click(screen.getByRole('button', { name: 'Save' }));
+		expect(updateNode).toHaveBeenCalledWith(strahd, {
+			name: 'Count Strahd',
+			type_id: 'place',
+			session_number: 1,
+			aliases: ['The Devil', 'The Ancient'],
+			tags: ['vampire', 'villain']
+		});
+	});
+
+	it('does not open the details when a tag is clicked', async () => {
+		const { user, ontag } = setup();
+		await user.click(screen.getByRole('button', { name: '#vampire' }));
+		expect(ontag).toHaveBeenCalled();
+		expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
+	});
+
+	it('blocks editing while someone else holds the lock', async () => {
 		store.online = [{ user_id: 'user-other', name: 'Alice', editing: 'strahd', since: 1 }];
-		setup();
+		const { user } = setup();
 		expect(screen.getByText(/Alice is editing this/)).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: 'Edit' })).toBeDisabled();
 		expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled();
+		await user.click(screen.getByText(/Lives above/));
+		expect(screen.queryByRole('textbox', { name: 'Notes' })).not.toBeInTheDocument();
 	});
 
 	describe('connections', () => {

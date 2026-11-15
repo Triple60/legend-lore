@@ -194,6 +194,18 @@ describe('createType', () => {
 	});
 });
 
+describe('updateType', () => {
+	it('renames a type in place', async () => {
+		const place = makeType({ id: 'place', label: 'Place' });
+		const s = storeWith({ types: [place] });
+		sb.respondWith(() => ({ data: { ...place, label: 'Location' }, error: null }));
+		await s.updateType(place, { label: 'Location' });
+		expect(sb.queries[0].table).toBe('node_types');
+		expect(arg(sb.queries[0], 'update')).toEqual({ label: 'Location' });
+		expect(s.types.place.label).toBe('Location');
+	});
+});
+
 describe('edit locks', () => {
 	const other = (since: number, user_id = 'user-other') => ({ user_id, name: 'Other', editing: 'n', since });
 
