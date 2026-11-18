@@ -410,3 +410,30 @@ export function optimizeLayout(
 	nodes.forEach((nd, i) => out.set(nd.id, { x: bestX[i] - bx + m.cx, y: bestY[i] - by + m.cy }));
 	return out;
 }
+
+/**
+ * optimizeLayout, run in a Web Worker where the browser has them, so a long
+ * search doesn't freeze the page. Falls back to running it here.
+ */
+export async function optimizeLayoutInBackground(
+	nodes: LayoutNode[],
+	edges: LayoutEdge[],
+	options: LayoutOptions = {}
+): Promise<Map<string, { x: number; y: number }>> {
+	if (typeof Worker === 'undefined') return optimizeLayout(nodes, edges, options);
+	try {
+		const worker = new Worker(new URL('./graph-layout.worker.ts', import.meta.url), { type: 'module' });
+		try {
+			const result = await new Promise<[string, { x: number; y: number }][]>((resolve, reject) => {
+				worker.onmessage = (e) => resolve(e.data);
+				worker.onerror = (e) => reject(e);
+				worker.postMessage({ nodes, edges, options });
+			});
+			return new Map(result);
+		} finally {
+			worker.terminate();
+		}
+	} catch {
+		return optimizeLayout(nodes, edges, options);
+	}
+}

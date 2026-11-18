@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countCrossings, layoutLoss, optimizeLayout, segmentsCross, type LayoutEdge, type LayoutNode } from './graph-layout.ts';
+import { countCrossings, layoutLoss, optimizeLayout, optimizeLayoutInBackground, segmentsCross, type LayoutEdge, type LayoutNode } from './graph-layout.ts';
 
 const node = (id: string, x: number, y: number, width = 40): LayoutNode => ({ id, x, y, width });
 const edge = (source: string, target: string, length = 110): LayoutEdge => ({ source, target, length });
@@ -67,5 +67,16 @@ describe('optimizeLayout', () => {
 	it('copes with tiny maps and stray connections', () => {
 		expect([...optimizeLayout([], [])]).toEqual([]);
 		expect(optimizeLayout([node('a', 3, 4)], [edge('a', 'missing')]).get('a')).toEqual({ x: 3, y: 4 });
+	});
+});
+
+describe('optimizeLayoutInBackground', () => {
+	it('gives the same answer as optimizeLayout when there are no workers (as here)', async () => {
+		const nodes = [node('a', 0, 0), node('b', 300, 0), node('c', 0, 300)];
+		const edges = [edge('a', 'b'), edge('b', 'c')];
+		const options = { seed: 4, timeBudget: Infinity };
+		expect([...(await optimizeLayoutInBackground(nodes, edges, options))]).toEqual([
+			...optimizeLayout(nodes, edges, options)
+		]);
 	});
 });
