@@ -167,9 +167,21 @@
 
 	const menuItems = (at: Point) => [
 		{ label: 'New node here', hint: shortcutsOn ? 'N' : undefined, onselect: () => quickAdd(at) },
-		{ label: 'Reorganize map', onselect: () => graph?.reorganize() },
+		{ label: 'Reorganize map', onselect: reorganize },
 		{ label: 'Fit map to screen', onselect: () => graph?.fit() }
 	];
+
+	// --- Reorganize: the button shows a spinner while the new layout is worked out ---
+	let reorganizing = $state(false);
+	async function reorganize() {
+		if (reorganizing || !graph) return;
+		reorganizing = true;
+		try {
+			await graph.reorganize();
+		} finally {
+			reorganizing = false;
+		}
+	}
 
 	// --- Keyboard shortcuts (see #lib/shortcuts.ts) ---
 	let shortcutsOn = $state(loadShortcutsEnabled());
@@ -377,12 +389,15 @@
 		</div>
 		<div class="actions">
 			<button
-				class="ghost"
-				onclick={() => graph?.reorganize()}
-				disabled={visibleNodes.length < 2}
+				class="ghost reorganize"
+				onclick={reorganize}
+				disabled={reorganizing || visibleNodes.length < 2}
+				aria-busy={reorganizing}
 				title="Move the nodes into a tidier layout: fewer crossing lines, connected nodes close together, nothing overlapping"
-				>Reorganize</button
 			>
+				{#if reorganizing}<span class="spinner" aria-hidden="true"></span>{/if}
+				{reorganizing ? 'Reorganizing…' : 'Reorganize'}
+			</button>
 			<button onclick={newNode} aria-keyshortcuts={shortcutsOn ? 'N' : undefined} title={shortcutsOn ? 'Shortcut: N' : undefined}>+ New node</button>
 		</div>
 	</div>
@@ -666,6 +681,30 @@
 		display: flex;
 		gap: 0.5rem;
 		margin-left: auto;
+	}
+	.reorganize {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.45rem;
+	}
+	/* Disabled while it works, but it shouldn't look greyed out for that. */
+	.reorganize[aria-busy='true'] {
+		opacity: 1;
+		cursor: progress;
+	}
+	.spinner {
+		width: 0.9em;
+		height: 0.9em;
+		border: 2px solid currentColor;
+		border-right-color: transparent;
+		border-radius: 50%;
+		animation: spin 0.7s linear infinite;
+		flex: none;
+	}
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
 	}
 	.workspace {
 		flex: 1;

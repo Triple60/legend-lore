@@ -3,7 +3,7 @@
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import { applyGraphFocus } from '#lib/graph-focus.ts';
 	import { estimateLabelWidth, GraphPhysics, LABEL_MAX_WIDTH } from '#lib/graph-physics.ts';
-	import { countCrossings, optimizeLayout, type LayoutNode } from '#lib/graph-layout.ts';
+	import { countCrossings, optimizeLayoutInBackground, type LayoutNode } from '#lib/graph-layout.ts';
 	import { prefersReducedMotion } from '#lib/ui/place.ts';
 	import type { LoreEdge, LoreNode, NodeType } from '#lib/types.ts';
 	import { theme } from '#lib/theme.svelte.ts';
@@ -205,25 +205,47 @@
 
 	/**
 	 * Tidy the whole map: work out a layout with fewer crossing lines, short
-	 * connections and no overlaps (see graph-layout.ts), then glide every node
-	 * there and fit the view to it.
+	 * connections and no overlaps (see graph-layout.ts), settle it under the
+	 * map's own spacing rules, then glide every node there and fit the view.
+	 * Resolves once the new layout is worked out and the glide has begun.
 	 */
-	export function reorganize() {
+	export async function reorganize() {
 		if (!cy || !physics || cy.nodes().length < 2) return;
 		const g = cy;
 		const { nodes: at, links } = physics.snapshot();
 		const nodes: LayoutNode[] = at.map((n) => ({ ...n, width: nodeWidth(String(g.getElementById(n.id).data('label') ?? '')) }));
-		const best = optimizeLayout(nodes, links, { seed: Date.now() });
-		// Let the live forces settle it too, so the map stays put afterwards,
-		// unless that would bring back crossings the optimiser removed.
-		const settled = physics.relaxed(best);
-		const placed = (pos: Map<string, Position>) => nodes.map((n) => ({ ...n, ...pos.get(n.id)! }));
-		const targets = countCrossings(placed(settled), links) <= countCrossings(placed(best), links) ? settled : best;
+		const best = await optimizeLayoutInBackground(nodes, links, { seed: Date.now() });
+		if (!cy || !physics) return; // the map went away while we worked
 
-		const reduced = prefersReducedMotion();
-		const duration = reduced ? 0 : 900;
-		physics.animateTo(targets, duration);
-		fitTo(placed(targets), duration);
+		// The live physics has its own idea of spacing (nodes push each other
+		// apart), and would spread a compact layout out at the next touch. So
+		// settle the layout under those same forces now, and glide straight to
+		// where they'd leave it. Settling can tangle lines that were clear;
+		// spreading the layout out first (which never adds crossings) gives the
+		// forces less to do, so try a few spreads and keep the tidiest result.
+		let mx = 0;
+		let my = 0;
+		for (const p of best.values()) {
+			mx += p.x / best.size;
+			my += p.y / best.size;
+		}
+		const placed = (pos: Map<string, Position>) => nodes.map((n) => ({ ...n, ...(pos.get(n.id) ?? n) }));
+		let targets: Map<string, Position> | null = null;
+		let fewest = Infinity;
+		for (const spread of [1, 1.3, 1.6, 2]) {
+			const start = new Map([...best].map(([id, p]) => [id, { x: mx + (p.x - mx) * spread, y: my + (p.y - my) * spread }]));
+			const settled = physics.relaxed(start);
+			const crossings = countCrossings(placed(settled), links);
+			if (crossings < fewest) {
+				fewest = crossings;
+				targets = settled;
+			}
+			if (crossings === 0) break;
+		}
+
+		const duration = prefersReducedMotion() ? 0 : 900;
+		physics.animateTo(targets!, duration, { release: true });
+		fitTo(placed(targets!), duration);
 	}
 
 	/** Move the view to frame these nodes (with their labels), animated over `duration`. */

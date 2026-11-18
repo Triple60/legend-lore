@@ -31,7 +31,7 @@ interface SimLink extends SimulationLinkDatum<SimNode> {
 }
 
 /** How hard a change wakes the simulation (d3 "alpha", 0–1). */
-const WAKE = { fresh: 0.8, change: 0.25, drag: 0.3 } as const;
+const WAKE = { fresh: 0.8, change: 0.25, drag: 0.3, release: 0.04 } as const;
 /** The spring length of a connection with a short (or no) annotation. */
 export const BASE_LINK_LENGTH = 110;
 /** Node radius on the map (nodes are 26px wide). */
@@ -178,7 +178,7 @@ export class GraphPhysics {
 	 * forces, worked out without moving anything on screen. Lets a new layout
 	 * be adjusted so the live physics won't pull it about afterwards.
 	 */
-	relaxed(targets: Map<string, Position>, ticks = 120): Map<string, Position> {
+	relaxed(targets: Map<string, Position>, maxTicks = 600): Map<string, Position> {
 		const nodes = [...this.#byId.values()];
 		const saved = nodes.map((s) => ({ x: s.x, y: s.y, vx: s.vx, vy: s.vy }));
 		const alpha = this.#sim.alpha();
@@ -190,8 +190,10 @@ export class GraphPhysics {
 			}
 			s.vx = s.vy = 0;
 		}
+		// Run until the simulation has cooled right down, as the live map would,
+		// so there's nothing left for it to move once the nodes are there.
 		this.#sim.alpha(0.3);
-		this.#sim.tick(ticks);
+		for (let t = 0; t < maxTicks && this.#sim.alpha() > this.#sim.alphaMin(); t++) this.#sim.tick();
 		const out = new Map(nodes.map((s) => [s.id, { x: s.x ?? 0, y: s.y ?? 0 }]));
 		nodes.forEach((s, i) => Object.assign(s, saved[i]));
 		this.#sim.alpha(alpha);
@@ -203,7 +205,7 @@ export class GraphPhysics {
 	 * motion they jump straight to it. Grabbing a node stops the glide where
 	 * it is and hands the map back to the physics.
 	 */
-	animateTo(targets: Map<string, Position>, duration = 900) {
+	animateTo(targets: Map<string, Position>, duration = 900, { release = false } = {}) {
 		this.#stopTween();
 		this.#sim.alphaTarget(0).stop();
 		const nodes = [...this.#byId.values()].filter((s) => targets.has(s.id));
@@ -214,7 +216,9 @@ export class GraphPhysics {
 			this.#sim.alpha(0);
 			this.#apply();
 			this.#onrest();
-			const pending = this.#pendingWake;
+			// Let the physics loose again, gently, so any small difference from
+			// its own resting place settles now rather than at the next touch.
+			const pending = Math.max(this.#pendingWake, release ? WAKE.release : 0);
 			this.#pendingWake = 0;
 			if (pending) this.#wake(pending);
 		};

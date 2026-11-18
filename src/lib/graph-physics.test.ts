@@ -147,4 +147,16 @@ describe('linkLength', () => {
 		expect(relaxed.size).toBe(4);
 		expect(cy.nodes().map((n) => ({ ...n.position() }))).toEqual(before);
 	});
+
+	it('a settled layout stays put when let loose after the glide', () => {
+		const { cy, physics } = setup();
+		physics.sync({ fresh: true });
+		const squashed = new Map(['a', 'b', 'c', 'lone'].map((id, i) => [id, { x: i * 10, y: i * 5 }]));
+		const settled = physics.relaxed(squashed);
+		physics.animateTo(settled, 0, { release: true });
+		for (const [id, p] of settled) {
+			const q = pos(cy, id);
+			expect(Math.hypot(q.x - p.x, q.y - p.y)).toBeLessThan(3);
+		}
+	});
 });
