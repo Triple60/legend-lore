@@ -240,6 +240,34 @@ describe('edit locks', () => {
 		expect(s.lockHolder('n')).toBeNull();
 	});
 
+	it("never loses the lock to this tab's own presence, even an older entry", async () => {
+		const s = storeWith();
+		(s as any).channel = sb.channel;
+		await s.beginEdit('n');
+		const key = (s as any).presenceKey;
+		sb.channel.presenceState.mockReturnValue({
+			[key]: [
+				{ user_id: me.id, name: me.name, editing: 'n', since: 1 },
+				{ user_id: me.id, name: me.name, editing: 'n', since: (s as any).editingSince }
+			]
+		});
+		(s as any).onPresenceSync();
+		expect(s.editing).toBe('n');
+		expect(s.lostLockTo).toBeNull();
+	});
+
+	it('says so when you lost the lock to yourself in another tab', async () => {
+		const s = storeWith();
+		(s as any).channel = sb.channel;
+		await s.beginEdit('n');
+		sb.channel.presenceState.mockReturnValue({
+			'other-tab': [{ user_id: me.id, name: me.name, editing: 'n', since: 1 }]
+		});
+		(s as any).onPresenceSync();
+		expect(s.editing).toBeNull();
+		expect(s.lostLockTo).toMatch(/another tab/);
+	});
+
 	it('endEdit releases the lock', async () => {
 		const s = storeWith();
 		await s.beginEdit('n');

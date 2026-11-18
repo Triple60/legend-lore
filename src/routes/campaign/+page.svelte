@@ -167,6 +167,7 @@
 
 	const menuItems = (at: Point) => [
 		{ label: 'New node here', hint: shortcutsOn ? 'N' : undefined, onselect: () => quickAdd(at) },
+		{ label: 'Reorganize map', onselect: () => graph?.reorganize() },
 		{ label: 'Fit map to screen', onselect: () => graph?.fit() }
 	];
 
@@ -205,7 +206,7 @@
 	 */
 	function clickBackground() {
 		if (menu || quick) menu = quick = null;
-		else if (selectedId && store?.editing !== selectedId) select(null);
+		else if (selectedId && store?.editing !== selectedId && !store?.lostLockTo) select(null);
 	}
 
 	function onSearchKey(e: KeyboardEvent) {
@@ -375,6 +376,13 @@
 			</label>
 		</div>
 		<div class="actions">
+			<button
+				class="ghost"
+				onclick={() => graph?.reorganize()}
+				disabled={visibleNodes.length < 2}
+				title="Move the nodes into a tidier layout: fewer crossing lines, connected nodes close together, nothing overlapping"
+				>Reorganize</button
+			>
 			<button onclick={newNode} aria-keyshortcuts={shortcutsOn ? 'N' : undefined} title={shortcutsOn ? 'Shortcut: N' : undefined}>+ New node</button>
 		</div>
 	</div>

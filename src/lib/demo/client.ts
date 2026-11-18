@@ -200,7 +200,8 @@ export function createDemoClient(tables: DemoTables = sampleData()) {
 	type Handler = { type: string; event?: string; cb: (...args: unknown[]) => void };
 	const channels: ReturnType<typeof makeChannel>[] = [];
 
-	function makeChannel(name: string) {
+	function makeChannel(name: string, opts?: { config?: { presence?: { key?: string } } }) {
+		const key = opts?.config?.presence?.key || 'me';
 		const handlers: Handler[] = [];
 		const presence: Record<string, Row[]> = {};
 		const channel = {
@@ -214,7 +215,7 @@ export function createDemoClient(tables: DemoTables = sampleData()) {
 				return channel;
 			},
 			async track(meta: Row) {
-				presence.me = [clone(meta)];
+				presence[key] = [clone(meta)];
 				for (const h of handlers) if (h.type === 'presence' && h.event === 'sync') h.cb();
 				return 'ok';
 			},
@@ -228,8 +229,8 @@ export function createDemoClient(tables: DemoTables = sampleData()) {
 		auth,
 		from,
 		rpc,
-		channel(name: string) {
-			const c = makeChannel(name);
+		channel(name: string, opts?: Parameters<typeof makeChannel>[1]) {
+			const c = makeChannel(name, opts);
 			channels.push(c);
 			return c;
 		},

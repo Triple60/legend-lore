@@ -10,6 +10,8 @@ interface PresenceMeta {
 	name: string;
 	editing: string | null;
 	since: number;
+	/** The presence key of the tab this entry came from (filled in on sync). */
+	key?: string;
 }
 
 export class ConflictError extends Error {
@@ -45,6 +47,8 @@ export class CampaignStore {
 	private channel: RealtimeChannel | null = null;
 	private destroyed = false;
 	private editingSince = 0;
+	/** This tab's presence key, so our own entries never count as someone else's lock. */
+	private readonly presenceKey = crypto.randomUUID();
 
 	constructor(
 		readonly id: string,
@@ -126,7 +130,7 @@ export class CampaignStore {
 
 		const filter = `campaign_id=eq.${this.id}`;
 		const channel = supabase.channel(topic, {
-			config: { presence: { key: crypto.randomUUID() } }
+			config: { presence: { key: this.presenceKey } }
 		});
 
 		channel
@@ -176,13 +180,15 @@ export class CampaignStore {
 
 	private onPresenceSync() {
 		const state = this.channel?.presenceState<PresenceMeta>() ?? {};
-		this.online = Object.values(state).flat();
+		this.online = Object.entries(state).flatMap(([key, metas]) => metas.map((m) => ({ ...m, key })));
 
 		// If two people grabbed the same node at once, the earlier one keeps it.
+		// The editor stays open with its text (see NodePanel), so nothing typed is
+		// lost; saving is still guarded by the version check.
 		if (this.editing) {
 			const winner = this.lockHolder(this.editing);
 			if (winner) {
-				this.lostLockTo = winner.name;
+				this.lostLockTo = winner.user_id === this.me.id ? 'You, in another tab or device,' : winner.name;
 				this.editing = null;
 				this.trackPresence();
 			}
@@ -192,10 +198,14 @@ export class CampaignStore {
 	/** Another session that holds (or out-ranks us for) the lock on this node. */
 	lockHolder(nodeId: string): PresenceMeta | null {
 		const mine = this.editing === nodeId ? this.editingSince : Infinity;
-		const others = this.online.filter(
-			(p) => p.editing === nodeId && !(p.user_id === this.me.id && p.since === this.editingSince)
-		);
+		const others = this.online.filter((p) => p.editing === nodeId && !this.isMine(p));
 		return others.find((p) => p.since < mine || (p.since === mine && p.user_id < this.me.id)) ?? null;
+	}
+
+	/** A presence entry from this tab (any of its updates, old or new). */
+	private isMine(p: PresenceMeta) {
+		if (p.key) return p.key === this.presenceKey;
+		return p.user_id === this.me.id && p.since === this.editingSince;
 	}
 
 	async beginEdit(nodeId: string): Promise<boolean> {

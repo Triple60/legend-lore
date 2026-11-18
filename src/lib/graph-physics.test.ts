@@ -123,4 +123,28 @@ describe('linkLength', () => {
 	it('stops growing once the annotation wraps', () => {
 		expect(linkLength(5000)).toBe(linkLength(LABEL_MAX_WIDTH));
 	});
+
+	it('reorganize: jumps straight to new positions with reduced motion, then rests', () => {
+		const { cy, physics, onrest } = setup();
+		physics.sync({ fresh: true });
+		onrest.mockClear();
+		const targets = new Map(['a', 'b', 'c', 'lone'].map((id, i) => [id, { x: i * 100, y: 50 }]));
+		physics.animateTo(targets);
+		expect(pos(cy, 'c')).toEqual({ x: 200, y: 50 });
+		expect(onrest).toHaveBeenCalledOnce();
+		// Nothing drifts afterwards until something wakes the map.
+		physics.sync();
+		expect(pos(cy, 'c')).toEqual({ x: 200, y: 50 });
+	});
+
+	it('works out a relaxed layout without moving anything on the map', () => {
+		const { cy, physics } = setup();
+		physics.sync({ fresh: true });
+		const before = cy.nodes().map((n) => ({ ...n.position() }));
+		const snap = physics.snapshot();
+		expect(snap.links.map((l) => `${l.source}>${l.target}`)).toEqual(['a>b', 'b>c']);
+		const relaxed = physics.relaxed(new Map(snap.nodes.map((n) => [n.id, { x: n.x + 5, y: n.y }])));
+		expect(relaxed.size).toBe(4);
+		expect(cy.nodes().map((n) => ({ ...n.position() }))).toEqual(before);
+	});
 });
