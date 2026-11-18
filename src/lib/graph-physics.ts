@@ -83,6 +83,10 @@ export class GraphPhysics {
 	#labelWidth: (text: string) => number;
 	/** Nodes being dragged right now. */
 	#dragging = new Set<string>();
+	/** The animation frame of a glide in progress (see animateTo). */
+	#tween: number | null = null;
+	/** A wake that arrived during a glide, to run once it ends. */
+	#pendingWake = 0;
 
 	constructor(
 		cy: Core,
@@ -160,7 +164,91 @@ export class GraphPhysics {
 		this.#wake(WAKE.change);
 	}
 
+	/** Where every node is, and every connection with its natural length. */
+	snapshot(): { nodes: { id: string; x: number; y: number }[]; links: { source: string; target: string; length: number }[] } {
+		const id = (end: string | number | SimNode) => (typeof end === 'object' ? end.id : String(end));
+		return {
+			nodes: [...this.#byId.values()].map((s) => ({ id: s.id, x: s.x ?? 0, y: s.y ?? 0 })),
+			links: this.#links.links().map((l) => ({ source: id(l.source), target: id(l.target), length: l.length }))
+		};
+	}
+
+	/**
+	 * Where nodes placed at `targets` would come to rest under the map's
+	 * forces, worked out without moving anything on screen. Lets a new layout
+	 * be adjusted so the live physics won't pull it about afterwards.
+	 */
+	relaxed(targets: Map<string, Position>, ticks = 120): Map<string, Position> {
+		const nodes = [...this.#byId.values()];
+		const saved = nodes.map((s) => ({ x: s.x, y: s.y, vx: s.vx, vy: s.vy }));
+		const alpha = this.#sim.alpha();
+		for (const s of nodes) {
+			const t = targets.get(s.id);
+			if (t) {
+				s.x = t.x;
+				s.y = t.y;
+			}
+			s.vx = s.vy = 0;
+		}
+		this.#sim.alpha(0.3);
+		this.#sim.tick(ticks);
+		const out = new Map(nodes.map((s) => [s.id, { x: s.x ?? 0, y: s.y ?? 0 }]));
+		nodes.forEach((s, i) => Object.assign(s, saved[i]));
+		this.#sim.alpha(alpha);
+		return out;
+	}
+
+	/**
+	 * Glide every node to a new position, then rest there. With reduced
+	 * motion they jump straight to it. Grabbing a node stops the glide where
+	 * it is and hands the map back to the physics.
+	 */
+	animateTo(targets: Map<string, Position>, duration = 900) {
+		this.#stopTween();
+		this.#sim.alphaTarget(0).stop();
+		const nodes = [...this.#byId.values()].filter((s) => targets.has(s.id));
+		const from = nodes.map((s) => ({ x: s.x ?? 0, y: s.y ?? 0 }));
+		const finish = () => {
+			this.#tween = null;
+			for (const s of nodes) s.vx = s.vy = 0;
+			this.#sim.alpha(0);
+			this.#apply();
+			this.#onrest();
+			const pending = this.#pendingWake;
+			this.#pendingWake = 0;
+			if (pending) this.#wake(pending);
+		};
+		const place = (k: number) => {
+			nodes.forEach((s, i) => {
+				const t = targets.get(s.id)!;
+				s.x = from[i].x + (t.x - from[i].x) * k;
+				s.y = from[i].y + (t.y - from[i].y) * k;
+			});
+		};
+		if (this.#reduced() || duration <= 0 || nodes.length === 0) {
+			place(1);
+			finish();
+			return;
+		}
+		const start = performance.now();
+		const step = (now: number) => {
+			const t = Math.min(1, (now - start) / duration);
+			place(easeInOutCubic(t));
+			if (t < 1) {
+				this.#apply();
+				this.#tween = requestAnimationFrame(step);
+			} else finish();
+		};
+		this.#tween = requestAnimationFrame(step);
+	}
+
+	#stopTween() {
+		if (this.#tween !== null) cancelAnimationFrame(this.#tween);
+		this.#tween = null;
+	}
+
 	destroy() {
+		this.#stopTween();
 		this.#sim.stop();
 		this.#cy.off('grab', 'node', this.#grab);
 		this.#cy.off('drag', 'node', this.#drag);
@@ -169,6 +257,11 @@ export class GraphPhysics {
 
 	#wake(alpha: number) {
 		if (this.#byId.size === 0) return;
+		if (this.#tween !== null) {
+			// Don't fight a glide in progress; wake once it lands.
+			this.#pendingWake = Math.max(this.#pendingWake, alpha);
+			return;
+		}
 		if (this.#reduced()) {
 			this.#sim.alpha(Math.max(this.#sim.alpha(), alpha)).stop();
 			this.#sim.tick(INSTANT_TICKS);
@@ -201,7 +294,14 @@ export class GraphPhysics {
 
 	// A grab is also the start of a plain click, so the simulation only warms
 	// up once the node actually moves.
-	#grab = (e: { target: NodeSingular }) => this.#pin(e.target);
+	#grab = (e: { target: NodeSingular }) => {
+		if (this.#tween !== null) {
+			// Stop a glide where it is; the physics takes it from here.
+			this.#stopTween();
+			this.#pendingWake = 0;
+		}
+		this.#pin(e.target);
+	};
 
 	#drag = (e: { target: NodeSingular }) => {
 		this.#pin(e.target);
@@ -224,3 +324,5 @@ export class GraphPhysics {
 		if (s) s.fx = s.fy = null;
 	};
 }
+
+const easeInOutCubic = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);

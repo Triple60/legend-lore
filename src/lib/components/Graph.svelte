@@ -3,6 +3,7 @@
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import { applyGraphFocus } from '#lib/graph-focus.ts';
 	import { estimateLabelWidth, GraphPhysics, LABEL_MAX_WIDTH } from '#lib/graph-physics.ts';
+	import { countCrossings, optimizeLayout, type LayoutNode } from '#lib/graph-layout.ts';
 	import { prefersReducedMotion } from '#lib/ui/place.ts';
 	import type { LoreEdge, LoreNode, NodeType } from '#lib/types.ts';
 	import { theme } from '#lib/theme.svelte.ts';
@@ -176,21 +177,76 @@
 		if (n && n.nonempty()) cy?.animate({ center: { eles: n }, zoom: Math.max(cy.zoom(), 1) }, { duration: 300 });
 	}
 
-	// Edge annotations are drawn at this size, in Cytoscape's default font.
+	// Edge annotations and node names are drawn at these sizes, in Cytoscape's default font.
 	const EDGE_FONT = '10px "Helvetica Neue", Helvetica, sans-serif';
+	const NODE_FONT = '12px "Helvetica Neue", Helvetica, sans-serif';
 	let measureCtx: CanvasRenderingContext2D | null | undefined;
-	/** How wide an annotation is drawn, so its connection can be long enough. */
-	function labelWidth(text: string): number {
+	function measure(text: string, font: string): number | undefined {
 		if (measureCtx === undefined) {
 			try {
 				measureCtx = document.createElement('canvas').getContext('2d');
 			} catch {
 				measureCtx = null;
 			}
-			if (measureCtx) measureCtx.font = EDGE_FONT;
 		}
-		const w = measureCtx?.measureText(text).width;
-		return typeof w === 'number' && w > 0 ? w : estimateLabelWidth(text);
+		if (!measureCtx) return undefined;
+		measureCtx.font = font;
+		const w = measureCtx.measureText(text).width;
+		return typeof w === 'number' && w > 0 ? w : undefined;
+	}
+	/** How wide an annotation is drawn, so its connection can be long enough. */
+	function labelWidth(text: string): number {
+		return measure(text, EDGE_FONT) ?? estimateLabelWidth(text);
+	}
+	/** How wide a node is on the map, counting the name drawn under it. */
+	function nodeWidth(name: string): number {
+		return Math.max(26, (measure(name, NODE_FONT) ?? estimateLabelWidth(name) * 1.2) + 4);
+	}
+
+	/**
+	 * Tidy the whole map: work out a layout with fewer crossing lines, short
+	 * connections and no overlaps (see graph-layout.ts), then glide every node
+	 * there and fit the view to it.
+	 */
+	export function reorganize() {
+		if (!cy || !physics || cy.nodes().length < 2) return;
+		const g = cy;
+		const { nodes: at, links } = physics.snapshot();
+		const nodes: LayoutNode[] = at.map((n) => ({ ...n, width: nodeWidth(String(g.getElementById(n.id).data('label') ?? '')) }));
+		const best = optimizeLayout(nodes, links, { seed: Date.now() });
+		// Let the live forces settle it too, so the map stays put afterwards,
+		// unless that would bring back crossings the optimiser removed.
+		const settled = physics.relaxed(best);
+		const placed = (pos: Map<string, Position>) => nodes.map((n) => ({ ...n, ...pos.get(n.id)! }));
+		const targets = countCrossings(placed(settled), links) <= countCrossings(placed(best), links) ? settled : best;
+
+		const reduced = prefersReducedMotion();
+		const duration = reduced ? 0 : 900;
+		physics.animateTo(targets, duration);
+		fitTo(placed(targets), duration);
+	}
+
+	/** Move the view to frame these nodes (with their labels), animated over `duration`. */
+	function fitTo(nodes: LayoutNode[], duration: number) {
+		if (!cy || !nodes.length) return;
+		const pad = 40;
+		let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+		for (const n of nodes) {
+			x1 = Math.min(x1, n.x - n.width / 2);
+			x2 = Math.max(x2, n.x + n.width / 2);
+			y1 = Math.min(y1, n.y - 17);
+			y2 = Math.max(y2, n.y + 34);
+		}
+		const w = cy.width();
+		const h = cy.height();
+		const zoom = Math.max(
+			cy.minZoom(),
+			Math.min(1.25, (w - 2 * pad) / Math.max(1, x2 - x1), (h - 2 * pad) / Math.max(1, y2 - y1))
+		);
+		const pan = { x: w / 2 - ((x1 + x2) / 2) * zoom, y: h / 2 - ((y1 + y2) / 2) * zoom };
+		cy.stop();
+		if (duration > 0) cy.animate({ zoom, pan }, { duration, easing: 'ease-in-out-cubic' });
+		else cy.viewport({ zoom, pan });
 	}
 
 	// Map styles, built from the current colour tokens. Called again whenever

@@ -35,6 +35,7 @@
 	$effect(() => {
 		if (nodeId !== lastId) {
 			if (lastId && store.editing === lastId) store.endEdit();
+			if (lastId) store.lostLockTo = null;
 			lastId = nodeId;
 			error = null;
 			history = null;
@@ -60,8 +61,15 @@
 	// only one person edits a node at a time; closing it gives the lock back.
 	type Section = 'details' | 'notes';
 	let section = $state<Section | null>(null);
-	/** The open section, if we still hold the lock (Esc on the page or losing it closes it). */
-	const open = $derived(isEditing ? section : null);
+	/**
+	 * The open section. Esc on the page ends the edit and closes it. Losing the
+	 * lock to someone else does not: the editor stays open with everything
+	 * typed so far, and saving is still guarded by the version check.
+	 */
+	const open = $derived(isEditing || store.lostLockTo ? section : null);
+	$effect(() => {
+		if (section && !isEditing && !store.lostLockTo) section = null;
+	});
 
 	let draftName = $state('');
 	let draftType = $state('');
@@ -101,6 +109,7 @@
 	async function discard() {
 		section = null;
 		error = null;
+		store.lostLockTo = null;
 		await store.endEdit();
 	}
 
@@ -216,9 +225,15 @@
 {#if !node}
 	<p class="muted">This node no longer exists.</p>
 {:else}
-	{#if store.lostLockTo}
-		<p class="error">{store.lostLockTo} started editing first, so your edit was closed.</p>
-	{/if}
+	{#snippet lostLock()}
+		<!-- Shown beside the open editor, so it's in view wherever the panel is scrolled. -->
+		{#if store.lostLockTo}
+			<p class="error" role="status">
+				{store.lostLockTo} started editing this too. Your changes are still here: save them, or copy them
+				somewhere safe. If the other edit is saved first, yours will be refused rather than overwrite it.
+			</p>
+		{/if}
+	{/snippet}
 	{#if holder}<p class="lock">🔒 {holder.name} is editing this…</p>{/if}
 	{#if error}<p class="error">{error}</p>{/if}
 
@@ -233,6 +248,7 @@
 			}}
 			onkeydown={onEditorKey}
 		>
+			{@render lostLock()}
 			<label>
 				Name
 				<input class="name-input" bind:this={nameInput} bind:value={draftName} required maxlength="200" />
@@ -319,6 +335,7 @@
 		<h3>Notes</h3>
 		{#if open === 'notes'}
 			<div class="editor">
+				{@render lostLock()}
 				<textarea
 					class="notes-input"
 					bind:this={notesInput}

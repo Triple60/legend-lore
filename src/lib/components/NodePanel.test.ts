@@ -1,5 +1,6 @@
 import { render, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
+import { tick } from 'svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeEdge, makeNode, makeType } from '../../tests/fixtures';
 
@@ -144,6 +145,30 @@ describe('NodePanel', () => {
 		await user.click(screen.getByRole('button', { name: '#vampire' }));
 		expect(ontag).toHaveBeenCalled();
 		expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
+	});
+
+	it('keeps what you typed when someone else takes the lock', async () => {
+		const updateNode = vi.spyOn(store, 'updateNode').mockResolvedValue(strahd);
+		const { user } = setup();
+		await user.click(screen.getByRole('group', { name: 'Edit notes' }));
+		await user.type(screen.getByRole('textbox', { name: 'Notes' }), ' Draft.');
+		// A presence sync shows Alice got there first.
+		store.lostLockTo = 'Alice';
+		store.editing = null;
+		await tick();
+		expect(screen.getByRole('textbox', { name: 'Notes' })).toHaveValue(`${strahd.notes} Draft.`);
+		expect(screen.getByText(/Your changes are still here/)).toBeInTheDocument();
+		await user.click(screen.getByRole('button', { name: 'Save' }));
+		expect(updateNode).toHaveBeenCalledWith(strahd, { notes: `${strahd.notes} Draft.` });
+		expect(screen.queryByRole('textbox', { name: 'Notes' })).not.toBeInTheDocument();
+	});
+
+	it('still closes the editor when the edit is ended on purpose (Esc on the page)', async () => {
+		const { user } = setup();
+		await user.click(screen.getByRole('group', { name: 'Edit notes' }));
+		await store.endEdit();
+		await tick();
+		expect(screen.queryByRole('textbox', { name: 'Notes' })).not.toBeInTheDocument();
 	});
 
 	it('blocks editing while someone else holds the lock', async () => {
