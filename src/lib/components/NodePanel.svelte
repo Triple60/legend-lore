@@ -225,13 +225,15 @@
 {#if !node}
 	<p class="muted">This node no longer exists.</p>
 {:else}
-	{#if store.lostLockTo}
-		<p class="error">
-			{store.lostLockTo} started editing this too.{#if open}
-				Your changes are still here: save them, or copy them somewhere safe. If the other edit is saved
-				first, yours will be refused rather than overwrite it.{/if}
-		</p>
-	{/if}
+	{#snippet lostLock()}
+		<!-- Shown beside the open editor, so it's in view wherever the panel is scrolled. -->
+		{#if store.lostLockTo}
+			<p class="error" role="status">
+				{store.lostLockTo} started editing this too. Your changes are still here: save them, or copy them
+				somewhere safe. If the other edit is saved first, yours will be refused rather than overwrite it.
+			</p>
+		{/if}
+	{/snippet}
 	{#if holder}<p class="lock">🔒 {holder.name} is editing this…</p>{/if}
 	{#if error}<p class="error">{error}</p>{/if}
 
@@ -246,6 +248,7 @@
 			}}
 			onkeydown={onEditorKey}
 		>
+			{@render lostLock()}
 			<label>
 				Name
 				<input class="name-input" bind:this={nameInput} bind:value={draftName} required maxlength="200" />
@@ -332,6 +335,7 @@
 		<h3>Notes</h3>
 		{#if open === 'notes'}
 			<div class="editor">
+				{@render lostLock()}
 				<textarea
 					class="notes-input"
 					bind:this={notesInput}
