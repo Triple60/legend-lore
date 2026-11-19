@@ -1,4 +1,5 @@
 import type { RealtimeChannel } from '@supabase/supabase-js';
+import { debug, short } from './debug.svelte';
 import { supabase } from './supabase';
 import type { Campaign, LoreEdge, LoreNode, NodeType, Profile, Revision } from './types';
 
@@ -93,6 +94,7 @@ export class CampaignStore {
 	}
 
 	async load() {
+		debug.log('store: loading', `campaign=${short(this.id)} tab=${short(this.presenceKey)}`);
 		this.loading = true;
 		try {
 			const [campaign, types, nodes, edges, profiles] = await Promise.all([
@@ -110,9 +112,11 @@ export class CampaignStore {
 			this.nodes = byId(nodes.data as LoreNode[]);
 			this.edges = byId(edges.data as LoreEdge[]);
 			this.profiles = byId(profiles.data as Profile[]);
+			debug.log('store: loaded', `${Object.keys(this.nodes).length} nodes`);
 			await this.subscribe();
 		} catch (e) {
 			this.error = (e as Error).message;
+			debug.log('store: load failed', this.error);
 		} finally {
 			this.loading = false;
 		}
@@ -150,7 +154,8 @@ export class CampaignStore {
 				}
 			})
 			.on('presence', { event: 'sync' }, () => this.onPresenceSync())
-			.subscribe((status) => {
+			.subscribe((status, err) => {
+				debug.log('live connection', `${status}${err ? ` ${err.message}` : ''}`);
 				if (status === 'SUBSCRIBED') this.trackPresence();
 			});
 
@@ -160,6 +165,10 @@ export class CampaignStore {
 	// Ignore stale realtime events that arrive after our own newer write.
 	private mergeNode(n: LoreNode) {
 		const cur = this.nodes[n.id];
+		debug.log(
+			'node change',
+			`${short(n.id)} v${n.version} (had v${cur?.version ?? '-'})${n.id === this.editing ? ' ← the node being edited' : ''}`
+		);
 		if (!cur || n.version >= cur.version) this.nodes[n.id] = n;
 	}
 
@@ -181,6 +190,12 @@ export class CampaignStore {
 	private onPresenceSync() {
 		const state = this.channel?.presenceState<PresenceMeta>() ?? {};
 		this.online = Object.entries(state).flatMap(([key, metas]) => metas.map((m) => ({ ...m, key })));
+		debug.log(
+			'presence',
+			this.online
+				.map((p) => `${p.key === this.presenceKey ? 'this tab' : `${p.name}/${short(p.key)}`}: ${p.editing ? `editing ${short(p.editing)} since ${p.since}` : 'idle'}`)
+				.join('; ') || 'nobody'
+		);
 
 		// If two people grabbed the same node at once, the earlier one keeps it.
 		// The editor stays open with its text (see NodePanel), so nothing typed is
@@ -188,6 +203,7 @@ export class CampaignStore {
 		if (this.editing) {
 			const winner = this.lockHolder(this.editing);
 			if (winner) {
+				debug.log('lock lost', `to ${winner.name}/${short(winner.key)} (since ${winner.since}, ours ${this.editingSince})`);
 				this.lostLockTo = winner.user_id === this.me.id ? 'You, in another tab or device,' : winner.name;
 				this.editing = null;
 				this.trackPresence();
@@ -209,7 +225,9 @@ export class CampaignStore {
 	}
 
 	async beginEdit(nodeId: string): Promise<boolean> {
-		if (this.lockHolder(nodeId)) return false;
+		const holder = this.lockHolder(nodeId);
+		debug.log('begin edit', `${short(nodeId)}${holder ? ` refused: ${holder.name} holds it` : ''}`);
+		if (holder) return false;
 		this.lostLockTo = null;
 		this.editing = nodeId;
 		this.editingSince = Date.now();
@@ -217,7 +235,9 @@ export class CampaignStore {
 		return true;
 	}
 
-	async endEdit() {
+	/** Give up the lock. `why` is only for the debug log. */
+	async endEdit(why = '') {
+		debug.log('end edit', `${short(this.editing)} ${why}`);
 		this.editing = null;
 		this.editingSince = 0;
 		await this.trackPresence();
@@ -343,6 +363,7 @@ export class CampaignStore {
 	}
 
 	destroy() {
+		debug.log('store: closed', short(this.id));
 		this.destroyed = true;
 		if (this.channel) supabase.removeChannel(this.channel);
 		this.channel = null;

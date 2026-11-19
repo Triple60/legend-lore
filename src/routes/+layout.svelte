@@ -3,6 +3,8 @@
 	import '#lib/ui/tokens.css';
 	import { resolve } from '$app/paths';
 	import { auth } from '#lib/session.svelte.ts';
+	import { debug } from '#lib/debug.svelte.ts';
+	import DebugPanel from '#lib/ui/DebugPanel.svelte';
 	import { theme } from '#lib/theme.svelte.ts';
 	import { isConfigured, isDemo, supabase } from '#lib/supabase.ts';
 	import { onMount } from 'svelte';
@@ -10,7 +12,10 @@
 
 	let { children }: LayoutProps = $props();
 
-	onMount(() => auth.start());
+	onMount(() => {
+		debug.start();
+		auth.start();
+	});
 </script>
 
 <svelte:head>
@@ -59,6 +64,8 @@
 		{/if}
 	</main>
 </div>
+
+<DebugPanel />
 
 <style>
 	:global(body) {

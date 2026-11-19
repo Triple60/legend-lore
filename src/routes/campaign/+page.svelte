@@ -20,6 +20,7 @@
 	import { SHORTCUTS, loadShortcutsEnabled, saveShortcutsEnabled, shortcutFor } from '#lib/shortcuts.ts';
 	import { auth } from '#lib/session.svelte.ts';
 	import { untrack } from 'svelte';
+	import { debug, short } from '#lib/debug.svelte.ts';
 
 	const campaignId = $derived(page.url.searchParams.get('id') ?? '');
 
@@ -32,16 +33,21 @@
 
 	$effect(() => {
 		if (!userId) {
+			debug.log('campaign page: not logged in, going to login');
 			const here = `${resolve('/campaign')}?id=${encodeURIComponent(campaignId)}`;
 			goto(`${resolve('/login')}?next=${encodeURIComponent(here)}`, { replaceState: true });
 			return;
 		}
 		const meta = untrack(() => auth.user);
 		const name = meta?.user_metadata?.full_name ?? meta?.user_metadata?.name ?? meta?.email ?? 'Adventurer';
+		debug.log('campaign page: starting', `user=${short(userId)} campaign=${short(campaignId)}`);
 		const s = new CampaignStore(campaignId, { id: userId, name });
 		store = s;
 		s.load();
-		return () => s.destroy();
+		return () => {
+			debug.log('campaign page: stopping', 'the login or campaign changed, or the page was left');
+			s.destroy();
+		};
 	});
 
 	// --- View state ---
@@ -80,6 +86,7 @@
 
 	/** Select a node; `center` pans the map to it (for picks made off the map). */
 	function select(id: string | null, center = true) {
+		if (id !== selectedId) debug.log('select', `${short(selectedId)} → ${short(id)}`);
 		selectedId = id;
 		drafting = null;
 		quick = null;
@@ -207,7 +214,7 @@
 		if (menu) menu = null;
 		else if (quick) quick = null;
 		else if (drafting) drafting = null;
-		else if (selectedId && store?.editing === selectedId) store.endEdit();
+		else if (selectedId && store?.editing === selectedId) store.endEdit('(Esc on the page)');
 		else if (selectedId) select(null);
 		else if (query) query = '';
 	}

@@ -1,4 +1,5 @@
 import type { Session } from '@supabase/supabase-js';
+import { debug, short } from './debug.svelte';
 import { isConfigured, supabase } from './supabase';
 
 // Global auth state. `ready` flips once the stored session (or an OAuth/PKCE
@@ -20,7 +21,8 @@ class SessionState {
 			this.session = data.session;
 			this.ready = true;
 		});
-		supabase.auth.onAuthStateChange((_event, session) => {
+		supabase.auth.onAuthStateChange((event, session) => {
+			debug.log('auth', `${event} user=${short(session?.user?.id)}`);
 			this.session = session;
 			this.ready = true;
 		});
