@@ -111,9 +111,7 @@
 	let notesInput = $state<HTMLTextAreaElement | null>(null);
 
 	async function openSection(which: Section) {
-		// Never re-fill an editor that's already open: that would throw away
-		// what's been typed in it.
-		if (section === which || saving) return;
+		if (open === which || saving) return;
 		if (!isEditing && !store.beginEdit(nodeId)) {
 			error = `${store.lockHolder(nodeId)?.name ?? 'Someone'} is editing this.`;
 			return;
@@ -130,7 +128,6 @@
 			draftNotes = node.notes;
 		}
 		section = which;
-		openedAt = performance.now();
 		debug.log('editor opened', which);
 		await tick();
 		if (which === 'details') nameInput?.focus();
@@ -165,22 +162,6 @@
 		if (await run(() => store.updateNode({ ...node, version: baseVersion }, patch))) await discard('(saved)');
 	}
 
-	/**
-	 * Clicking to open an editor is often a double-click. Its second click
-	 * lands on the editor that just replaced the text, where it would select
-	 * a word (which the next keystroke replaces) or, just outside the box,
-	 * take the cursor out of it. So for a moment after opening, a click
-	 * leaves the cursor where opening put it.
-	 */
-	let openedAt = -Infinity;
-	function onDocumentMouseDown(e: MouseEvent) {
-		if (!open || performance.now() - openedAt > 500) return;
-		const target = e.target as HTMLElement;
-		const focused = open === 'notes' ? notesInput : nameInput;
-		// A deliberate click on some other control or field still works.
-		if (target !== focused && target.closest('button, select, a, input, textarea, label')) return;
-		e.preventDefault();
-	}
 
 	/** In an open editor: Esc discards, Ctrl/Cmd+Enter saves. */
 	function onEditorKey(e: KeyboardEvent) {
@@ -267,8 +248,6 @@
 
 	const when = (iso: string) => new Date(iso).toLocaleString();
 </script>
-
-<svelte:document onmousedowncapture={onDocumentMouseDown} />
 
 {#snippet end(id: string)}
 	{#if id === nodeId}
