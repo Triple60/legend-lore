@@ -10,7 +10,11 @@
  *   and unconnected nodes don't drift off;
  * - overlap: nodes (and their name labels) sitting on top of each other,
  *   which keeps "compact" from collapsing everything into a heap;
- * - lines through nodes: a connection passing over a node it doesn't join.
+ * - lines through nodes: a connection passing over a node (or its name)
+ *   that it doesn't join;
+ * - annotations: each connection's middle, where its annotation is drawn, is
+ *   treated as a body of its own, which must keep clear of nodes and of
+ *   other connections' annotations.
  *
  * Crossings are a count, so the loss has no useful gradient. It is minimised
  * by simulated annealing instead: move one node at a time (or swap two),
@@ -32,6 +36,9 @@ export interface LayoutEdge {
 	target: string;
 	/** Natural length of this connection, in pixels. */
 	length: number;
+	/** Size of the annotation drawn at its middle, in pixels (none if left out). */
+	labelWidth?: number;
+	labelHeight?: number;
 }
 
 export interface LayoutWeights {
@@ -40,6 +47,7 @@ export interface LayoutWeights {
 	spread: number;
 	overlap: number;
 	throughNode: number;
+	label: number;
 }
 
 export const DEFAULT_WEIGHTS: LayoutWeights = {
@@ -47,7 +55,8 @@ export const DEFAULT_WEIGHTS: LayoutWeights = {
 	length: 0.6,
 	spread: 0.02,
 	overlap: 30,
-	throughNode: 0.6
+	throughNode: 2,
+	label: 12
 };
 
 export interface LayoutOptions {
@@ -71,8 +80,10 @@ const UNIT = 100;
 const NODE_HEIGHT = 46;
 /** Breathing room kept between neighbouring nodes. */
 const GAP = 24;
-/** A line closer than this to a node's centre counts as running through it. */
-const THROUGH_RADIUS = 20;
+/** Room kept between a line and the edge of a node (or its name). */
+const LINE_PAD = 8;
+/** How far below a node's centre the middle of the node-plus-name block is. */
+const NAME_DROP = 9;
 
 interface Model {
 	n: number;
@@ -83,6 +94,9 @@ interface Model {
 	ea: Int32Array;
 	eb: Int32Array;
 	elen: Float64Array;
+	/** Half the width and height of each edge's annotation (0 for none). */
+	elw: Float64Array;
+	elh: Float64Array;
 	/** Edge indices touching each node. */
 	incident: number[][];
 	cx: number;
@@ -102,18 +116,31 @@ function build(nodes: LayoutNode[], edges: LayoutEdge[], weights?: Partial<Layou
 	const ea: number[] = [];
 	const eb: number[] = [];
 	const elen: number[] = [];
-	const seen = new Set<string>();
+	const elw: number[] = [];
+	const elh: number[] = [];
+	const seen = new Map<string, number>();
 	for (const e of edges) {
 		const a = index.get(e.source);
 		const b = index.get(e.target);
 		if (a === undefined || b === undefined || a === b) continue;
 		// Two connections between the same pair are drawn side by side; one is enough here.
+		// Keep the bigger annotation, which is the one that needs the room.
 		const key = a < b ? `${a}:${b}` : `${b}:${a}`;
-		if (seen.has(key)) continue;
-		seen.add(key);
+		const lw = Math.max(0, e.labelWidth ?? 0) / 2;
+		const lh = lw > 0 ? Math.max(0, e.labelHeight ?? 0) / 2 : 0;
+		const dup = seen.get(key);
+		if (dup !== undefined) {
+			elen[dup] = Math.max(elen[dup], e.length);
+			elw[dup] = Math.max(elw[dup], lw);
+			elh[dup] = Math.max(elh[dup], lh);
+			continue;
+		}
+		seen.set(key, ea.length);
 		ea.push(a);
 		eb.push(b);
 		elen.push(e.length);
+		elw.push(lw);
+		elh.push(lh);
 	}
 	const incident: number[][] = Array.from({ length: n }, () => []);
 	ea.forEach((a, i) => {
@@ -134,6 +161,8 @@ function build(nodes: LayoutNode[], edges: LayoutEdge[], weights?: Partial<Layou
 		ea: Int32Array.from(ea),
 		eb: Int32Array.from(eb),
 		elen: Float64Array.from(elen),
+		elw: Float64Array.from(elw),
+		elh: Float64Array.from(elh),
 		incident,
 		cx: n ? cx : 0,
 		cy: n ? cy : 0,
@@ -208,22 +237,83 @@ function crossTerm(m: Model, e: number, f: number): number {
 	return segmentsCross(m.x[a], m.y[a], m.x[b], m.y[b], m.x[c], m.y[c], m.x[d], m.y[d]) ? m.wt.crossing : 0;
 }
 
+/**
+ * Node `k` sitting on connection `e`, which it isn't part of: on the line
+ * itself, or on the annotation drawn at its middle. Measured in the line's
+ * own frame (u along it, v across), since annotations turn with their line.
+ */
 function throughTerm(m: Model, e: number, k: number): number {
 	const a = m.ea[e];
 	const b = m.eb[e];
 	if (k === a || k === b) return 0;
-	const r = THROUGH_RADIUS;
-	if (m.x[k] < Math.min(m.x[a], m.x[b]) - r || m.x[k] > Math.max(m.x[a], m.x[b]) + r) return 0;
-	if (m.y[k] < Math.min(m.y[a], m.y[b]) - r || m.y[k] > Math.max(m.y[a], m.y[b]) + r) return 0;
-	const vx = m.x[b] - m.x[a];
-	const vy = m.y[b] - m.y[a];
-	const len2 = vx * vx + vy * vy;
-	if (len2 === 0) return 0;
-	const t = ((m.x[k] - m.x[a]) * vx + (m.y[k] - m.y[a]) * vy) / len2;
-	if (t <= 0 || t >= 1) return 0;
-	const d = Math.hypot(m.x[a] + t * vx - m.x[k], m.y[a] + t * vy - m.y[k]);
-	if (d >= THROUGH_RADIUS) return 0;
-	return m.wt.throughNode * (1 - d / THROUGH_RADIUS);
+	const x = m.x;
+	const y = m.y;
+	// The node with its name under it, as a box around this middle.
+	const kx = x[k];
+	const ky = y[k] + NAME_DROP;
+	const hw = m.w[k] / 2;
+	const hh = NODE_HEIGHT / 2;
+	const lw = m.elw[e];
+	const lh = m.elh[e];
+	const reach = Math.max(hw, hh) + lh + LINE_PAD;
+	if (kx < Math.min(x[a], x[b]) - reach || kx > Math.max(x[a], x[b]) + reach) return 0;
+	if (ky < Math.min(y[a], y[b]) - reach || ky > Math.max(y[a], y[b]) + reach) return 0;
+	const vx = x[b] - x[a];
+	const vy = y[b] - y[a];
+	const len = Math.hypot(vx, vy);
+	if (len === 0) return 0;
+	const ux = vx / len;
+	const uy = vy / len;
+	const u = (kx - x[a]) * ux + (ky - y[a]) * uy;
+	const v = (kx - x[a]) * -uy + (ky - y[a]) * ux;
+	// How far the node's box reaches along the line, and across it.
+	const ru = Math.abs(ux) * hw + Math.abs(uy) * hh;
+	const rv = Math.abs(uy) * hw + Math.abs(ux) * hh;
+	let sum = 0;
+	if (u > 0 && u < len) {
+		const clear = rv + LINE_PAD;
+		const depth = clear - Math.abs(v);
+		if (depth > 0) sum += m.wt.throughNode * (depth / clear);
+	}
+	if (lw > 0) {
+		const du = (u - len / 2) / (lw + ru + GAP / 2);
+		const dv = v / (lh + rv + GAP / 2);
+		const d2 = du * du + dv * dv;
+		if (d2 < 1) {
+			const t = 1 - Math.sqrt(d2);
+			sum += m.wt.label * t * t;
+		}
+	}
+	return sum;
+}
+
+/** How far edge `e`'s annotation reaches across (hx) and down (hy) the map. */
+function labelReach(m: Model, e: number): [number, number] {
+	const vx = m.x[m.eb[e]] - m.x[m.ea[e]];
+	const vy = m.y[m.eb[e]] - m.y[m.ea[e]];
+	const len = Math.hypot(vx, vy) || 1;
+	const cx = Math.abs(vx / len);
+	const cy = Math.abs(vy / len);
+	return [cx * m.elw[e] + cy * m.elh[e], cy * m.elw[e] + cx * m.elh[e]];
+}
+
+/** Two connections' annotations drawn on top of each other. */
+function labelPairTerm(m: Model, e: number, f: number): number {
+	if (m.elw[e] === 0 || m.elw[f] === 0) return 0;
+	const ex = (m.x[m.ea[e]] + m.x[m.eb[e]]) / 2;
+	const ey = (m.y[m.ea[e]] + m.y[m.eb[e]]) / 2;
+	const fx = (m.x[m.ea[f]] + m.x[m.eb[f]]) / 2;
+	const fy = (m.y[m.ea[f]] + m.y[m.eb[f]]) / 2;
+	const reach = m.elw[e] + m.elw[f] + GAP;
+	if (Math.abs(ex - fx) > reach || Math.abs(ey - fy) > reach) return 0;
+	const [ehx, ehy] = labelReach(m, e);
+	const [fhx, fhy] = labelReach(m, f);
+	const dx = (ex - fx) / (ehx + fhx + GAP / 2);
+	const dy = (ey - fy) / (ehy + fhy + GAP / 2);
+	const d2 = dx * dx + dy * dy;
+	if (d2 >= 1) return 0;
+	const t = 1 - Math.sqrt(d2);
+	return m.wt.label * t * t;
 }
 
 /** Every term that involves at least one node in `moved`, each counted once. */
@@ -249,7 +339,7 @@ function localLoss(m: Model, i: number, j: number): number {
 		sum += lengthTerm(m, e);
 		for (let f = 0; f < E; f++) {
 			if (f === e || (m.mark[f] === stamp && f < e)) continue;
-			sum += crossTerm(m, e, f);
+			sum += crossTerm(m, e, f) + labelPairTerm(m, e, f);
 		}
 		for (let k = 0; k < m.n; k++) sum += throughTerm(m, e, k);
 	}
@@ -264,7 +354,7 @@ function totalLoss(m: Model): number {
 	}
 	for (let e = 0; e < m.ea.length; e++) {
 		sum += lengthTerm(m, e);
-		for (let f = e + 1; f < m.ea.length; f++) sum += crossTerm(m, e, f);
+		for (let f = e + 1; f < m.ea.length; f++) sum += crossTerm(m, e, f) + labelPairTerm(m, e, f);
 		for (let k = 0; k < m.n; k++) sum += throughTerm(m, e, k);
 	}
 	return sum;

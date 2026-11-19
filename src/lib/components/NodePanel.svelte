@@ -227,6 +227,24 @@
 		if (ok) editingEdge = null;
 	}
 
+	/** Enter saves the connection being edited; Escape drops the edit. */
+	function onEdgeKey(e: KeyboardEvent, edge: LoreEdge) {
+		if (e.key === 'Enter' && !e.isComposing) {
+			e.preventDefault();
+			if (!saving) saveEdge(edge);
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			e.stopPropagation();
+			editingEdge = null;
+		}
+	}
+
+	/** Put the cursor in the annotation as soon as its editor opens. */
+	function focusOnOpen(el: HTMLInputElement) {
+		el.focus();
+		el.select();
+	}
+
 	async function removeEdge(edge: LoreEdge) {
 		if (confirm('Remove this connection?')) await run(() => store.deleteEdge(edge));
 	}
@@ -420,8 +438,22 @@
 			{#each connections as e (e.id)}
 				<li>
 					{#if editingEdge === e.id}
-						<input bind:value={editAnnotation} placeholder="annotation" />
-						<input class="num" type="number" min="0" bind:value={editSession} placeholder="sess." />
+						<input
+							bind:value={editAnnotation}
+							placeholder="annotation"
+							aria-label="Annotation"
+							use:focusOnOpen
+							onkeydown={(ev) => onEdgeKey(ev, e)}
+						/>
+						<input
+							class="num"
+							type="number"
+							min="0"
+							bind:value={editSession}
+							placeholder="sess."
+							aria-label="Session"
+							onkeydown={(ev) => onEdgeKey(ev, e)}
+						/>
 						<button class="small" onclick={() => saveEdge(e)} disabled={saving}>Save</button>
 						<button class="ghost small" onclick={() => (editingEdge = null)}>Cancel</button>
 					{:else}

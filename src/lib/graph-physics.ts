@@ -28,6 +28,9 @@ interface SimNode extends SimulationNodeDatum {
 }
 interface SimLink extends SimulationLinkDatum<SimNode> {
 	length: number;
+	/** Size of the annotation drawn at the middle of the connection (0 for none). */
+	labelWidth: number;
+	labelHeight: number;
 }
 
 /** How hard a change wakes the simulation (d3 "alpha", 0–1). */
@@ -56,6 +59,86 @@ export function linkLength(labelWidth: number): number {
 
 /** A rough label width, for when text can't be measured (no canvas). */
 export const estimateLabelWidth = (text: string) => text.length * 5.6;
+
+/** Height of one line of annotation, with its background padding. */
+const LABEL_LINE_HEIGHT = 13;
+/**
+ * How big an annotation `labelWidth` pixels wide is drawn: long ones wrap at
+ * LABEL_MAX_WIDTH onto more lines.
+ */
+export function labelBox(labelWidth: number): { width: number; height: number } {
+	if (labelWidth <= 0) return { width: 0, height: 0 };
+	const lines = Math.max(1, Math.ceil(labelWidth / LABEL_MAX_WIDTH));
+	return { width: Math.min(labelWidth, LABEL_MAX_WIDTH) + 4, height: lines * LABEL_LINE_HEIGHT + 4 };
+}
+
+/** Room a node (with its name under it) wants between itself and a line. */
+export const LINE_CLEARANCE = 26;
+/** How hard a line and a node on it push apart (per tick, like forceCollide). */
+const LINE_PUSH = 0.25;
+
+/**
+ * Keep nodes off connections they aren't part of: a node lying on a line, or
+ * on the annotation in its middle, is pushed off to the side it's on, and
+ * the line's two ends are pushed the other way, so the two part like any
+ * other pair of bodies. The annotation is treated as a box around the
+ * middle of the line, turned with it (as it is drawn).
+ */
+function forceLineClearance(links: () => SimLink[]) {
+	let nodes: SimNode[] = [];
+	const force = () => {
+		for (const l of links()) {
+			const a = l.source;
+			const b = l.target;
+			if (typeof a !== 'object' || typeof b !== 'object') continue;
+			const ax = a.x ?? 0;
+			const ay = a.y ?? 0;
+			const vx = (b.x ?? 0) - ax;
+			const vy = (b.y ?? 0) - ay;
+			const len = Math.hypot(vx, vy);
+			if (len < 1) continue;
+			const ux = vx / len;
+			const uy = vy / len;
+			const halfLabel = l.labelWidth / 2;
+			const reach = LINE_CLEARANCE + l.labelHeight / 2;
+			const minX = Math.min(ax, ax + vx) - reach;
+			const maxX = Math.max(ax, ax + vx) + reach;
+			const minY = Math.min(ay, ay + vy) - reach;
+			const maxY = Math.max(ay, ay + vy) + reach;
+			for (const k of nodes) {
+				if (k === a || k === b) continue;
+				const kx = k.x ?? 0;
+				const ky = k.y ?? 0;
+				if (kx < minX || kx > maxX || ky < minY || ky > maxY) continue;
+				// Where the node is along the line (u) and off to its side (v).
+				const u = (kx - ax) * ux + (ky - ay) * uy;
+				if (u <= 0 || u >= len) continue; // past the ends: the nodes there push it off
+				const v = (kx - ax) * -uy + (ky - ay) * ux;
+				const onLabel = Math.abs(u - len / 2) < halfLabel + LINE_CLEARANCE;
+				const need = LINE_CLEARANCE + (onLabel ? l.labelHeight / 2 : 0);
+				const gap = need - Math.abs(v);
+				if (gap <= 0) continue;
+				// Straight on the line: pick a side that doesn't depend on rounding.
+				const side = v > 0.01 ? 1 : v < -0.01 ? -1 : k.index! % 2 ? 1 : -1;
+				const push = gap * LINE_PUSH * side;
+				const nx = -uy * push;
+				const ny = ux * push;
+				// The node takes half; the line's ends share the rest by how near each is.
+				const t = u / len;
+				k.vx = (k.vx ?? 0) + nx / 2;
+				k.vy = (k.vy ?? 0) + ny / 2;
+				a.vx = (a.vx ?? 0) - (nx / 2) * (1 - t);
+				a.vy = (a.vy ?? 0) - (ny / 2) * (1 - t);
+				b.vx = (b.vx ?? 0) - (nx / 2) * t;
+				b.vy = (b.vy ?? 0) - (ny / 2) * t;
+			}
+		}
+	};
+	force.initialize = (n: SimNode[]) => {
+		nodes = n;
+	};
+	return force;
+}
 
 /** Ticks to run in one go when settling without animation. */
 const INSTANT_TICKS = 300;
@@ -101,6 +184,8 @@ export class GraphPhysics {
 			.force('charge', forceManyBody<SimNode>().strength(-320).distanceMax(700))
 			.force('link', this.#links)
 			.force('collide', forceCollide<SimNode>(32))
+			// Nodes stay off connections (and their annotations) that they aren't on.
+			.force('lines', forceLineClearance(() => this.#links.links()))
 			// A gentle pull to the middle keeps unconnected nodes in the cloud.
 			.force('x', forceX<SimNode>(0).strength(0.03))
 			.force('y', forceY<SimNode>(0).strength(0.03))
@@ -139,10 +224,14 @@ export class GraphPhysics {
 			const source = e.source().id();
 			const target = e.target().id();
 			const label = String(e.data('label') ?? '');
-			const length = linkLength(label ? this.#labelWidth(label) : 0);
-			if (source !== target) links.push({ source, target, length });
+			const width = label ? this.#labelWidth(label) : 0;
+			const box = labelBox(width);
+			if (source !== target)
+				links.push({ source, target, length: linkLength(width), labelWidth: box.width, labelHeight: box.height });
 		});
-		const edgeKey = links.map((l) => `${l.source}>${l.target}:${Math.round(l.length)}`).join('|');
+		const edgeKey = links
+			.map((l) => `${l.source}>${l.target}:${Math.round(l.length)}:${Math.round(l.labelHeight)}`)
+			.join('|');
 		if (edgeKey !== this.#edgeKey) changed = true;
 		this.#edgeKey = edgeKey;
 
@@ -165,11 +254,20 @@ export class GraphPhysics {
 	}
 
 	/** Where every node is, and every connection with its natural length. */
-	snapshot(): { nodes: { id: string; x: number; y: number }[]; links: { source: string; target: string; length: number }[] } {
+	snapshot(): {
+		nodes: { id: string; x: number; y: number }[];
+		links: { source: string; target: string; length: number; labelWidth: number; labelHeight: number }[];
+	} {
 		const id = (end: string | number | SimNode) => (typeof end === 'object' ? end.id : String(end));
 		return {
 			nodes: [...this.#byId.values()].map((s) => ({ id: s.id, x: s.x ?? 0, y: s.y ?? 0 })),
-			links: this.#links.links().map((l) => ({ source: id(l.source), target: id(l.target), length: l.length }))
+			links: this.#links.links().map((l) => ({
+				source: id(l.source),
+				target: id(l.target),
+				length: l.length,
+				labelWidth: l.labelWidth,
+				labelHeight: l.labelHeight
+			}))
 		};
 	}
 
