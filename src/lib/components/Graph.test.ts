@@ -104,6 +104,33 @@ describe('Graph', () => {
 		expect(screen.queryByLabelText('Connection annotation')).not.toBeInTheDocument();
 	});
 
+	it('edits an existing annotation on double-click, starting from its text', async () => {
+		const { cy, onannotate } = setup();
+		cy.getElementById('named').emit('dbltap');
+		await tick();
+		const input = screen.getByLabelText('Connection annotation');
+		expect(input).toHaveFocus();
+		expect(input).toHaveValue('rules');
+		await userEvent.clear(input);
+		await userEvent.type(input, 'haunts{Enter}');
+		expect(onannotate).toHaveBeenCalledWith('named', 'haunts');
+	});
+
+	it('can clear an annotation, but saves nothing if it is left as it was', async () => {
+		const { cy, onannotate } = setup();
+		cy.getElementById('named').emit('dbltap');
+		await tick();
+		await userEvent.type(screen.getByLabelText('Connection annotation'), '{Enter}');
+		expect(onannotate).not.toHaveBeenCalled();
+
+		cy.getElementById('named').emit('dbltap');
+		await tick();
+		const input = screen.getByLabelText('Connection annotation');
+		await userEvent.clear(input);
+		await userEvent.type(input, '{Enter}');
+		expect(onannotate).toHaveBeenCalledWith('named', '');
+	});
+
 	it('reports a right-click on empty canvas, with where it happened', () => {
 		const { cy, onmenu, onbackground } = setup();
 		cy.emit({ type: 'cxttap', renderedPosition: { x: 120, y: 80 } } as never);

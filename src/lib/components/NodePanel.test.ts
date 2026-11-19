@@ -264,6 +264,30 @@ describe('NodePanel', () => {
 			expect(updateEdge).toHaveBeenCalledWith(edge, { annotation: '', session_number: null });
 		});
 
+		it('focuses the annotation when editing starts, and saves on Enter', async () => {
+			const edge = makeEdge({ id: 'e', from_id: 'strahd', to_id: 'village', annotation: 'rules' });
+			store.edges = { e: edge };
+			const updateEdge = vi.spyOn(store, 'updateEdge').mockResolvedValue(edge);
+			const { user } = setup();
+			await user.click(screen.getByTitle('Edit'));
+			const annotation = screen.getByLabelText('Annotation');
+			expect(annotation).toHaveFocus();
+			await user.keyboard('haunts{Enter}');
+			expect(updateEdge).toHaveBeenCalledWith(edge, { annotation: 'haunts', session_number: null });
+			expect(screen.queryByLabelText('Annotation')).not.toBeInTheDocument();
+		});
+
+		it('drops the edit on Escape', async () => {
+			const edge = makeEdge({ id: 'e', from_id: 'strahd', to_id: 'village', annotation: 'rules' });
+			store.edges = { e: edge };
+			const updateEdge = vi.spyOn(store, 'updateEdge').mockResolvedValue(edge);
+			const { user } = setup();
+			await user.click(screen.getByTitle('Edit'));
+			await user.keyboard('oops{Escape}');
+			expect(updateEdge).not.toHaveBeenCalled();
+			expect(screen.getByRole('listitem')).toHaveTextContent('rules');
+		});
+
 		it('shows save errors', async () => {
 			const edge = makeEdge({ id: 'e', from_id: 'strahd', to_id: 'village' });
 			store.edges = { e: edge };
