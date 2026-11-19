@@ -1,6 +1,14 @@
 import cytoscape, { type Core } from 'cytoscape';
 import { describe, expect, it, vi } from 'vitest';
-import { ARROW_CLEARANCE, BASE_LINK_LENGTH, GraphPhysics, LABEL_MAX_WIDTH, linkLength } from './graph-physics.ts';
+import {
+	ARROW_CLEARANCE,
+	BASE_LINK_LENGTH,
+	GraphPhysics,
+	LABEL_MAX_WIDTH,
+	LINE_CLEARANCE,
+	labelBox,
+	linkLength
+} from './graph-physics.ts';
 
 // Reduced motion makes the simulation settle synchronously, so tests can
 // check where things end up without waiting on animation frames.
@@ -158,5 +166,59 @@ describe('linkLength', () => {
 			const q = pos(cy, id);
 			expect(Math.hypot(q.x - p.x, q.y - p.y)).toBeLessThan(3);
 		}
+	});
+});
+
+describe('keeping nodes off lines', () => {
+	/** A connection a→b with a third node sitting right in its middle. */
+	function onTheLine(label = '') {
+		const cy = cytoscape({ headless: true, styleEnabled: false });
+		cy.add([
+			{ group: 'nodes', data: { id: 'a' }, position: { x: -150, y: 0 } },
+			{ group: 'nodes', data: { id: 'b' }, position: { x: 150, y: 0 } },
+			{ group: 'nodes', data: { id: 'm' }, position: { x: 0, y: 0 } },
+			{ group: 'edges', data: { id: 'ab', source: 'a', target: 'b', label } }
+		]);
+		const physics = new GraphPhysics(cy, { reducedMotion: () => true });
+		return { cy, physics };
+	}
+	/** How far node m is from the line a–b. */
+	const offLine = (cy: Core) => {
+		const a = pos(cy, 'a');
+		const b = pos(cy, 'b');
+		const m = pos(cy, 'm');
+		const vx = b.x - a.x;
+		const vy = b.y - a.y;
+		return Math.abs((m.x - a.x) * vy - (m.y - a.y) * vx) / Math.hypot(vx, vy);
+	};
+
+	it('pushes a node off a line it isn\'t part of', () => {
+		const { cy, physics } = onTheLine();
+		physics.sync({ fresh: true });
+		expect(offLine(cy)).toBeGreaterThan(LINE_CLEARANCE * 0.9);
+	});
+
+	it('keeps a node clear of the annotation, which is thicker than the line', () => {
+		const { cy, physics } = onTheLine('swore an oath of vengeance upon the house of Durst for ever');
+		physics.sync({ fresh: true });
+		expect(offLine(cy)).toBeGreaterThan(LINE_CLEARANCE + labelBox(300).height / 2 - 6);
+	});
+
+	it('reports annotation sizes in the snapshot, for Reorganize', () => {
+		const { physics } = onTheLine('rules');
+		physics.sync();
+		const [link] = physics.snapshot().links;
+		expect(link.labelWidth).toBeGreaterThan(0);
+		expect(link.labelHeight).toBeGreaterThan(0);
+	});
+});
+
+describe('labelBox', () => {
+	it('is empty with no annotation, and wraps long ones onto more lines', () => {
+		expect(labelBox(0)).toEqual({ width: 0, height: 0 });
+		const one = labelBox(100);
+		const three = labelBox(LABEL_MAX_WIDTH * 2.5);
+		expect(three.width).toBe(LABEL_MAX_WIDTH + 4);
+		expect(three.height).toBeGreaterThan(one.height * 2.5);
 	});
 });

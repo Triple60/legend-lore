@@ -23,7 +23,7 @@
 		onmenu: (at: Position) => void;
 		/** Shift+click on a node while another is selected: connect selected → clicked. */
 		onconnect: (fromId: string, toId: string) => void;
-		/** Text typed into the label editor of an unlabelled edge. */
+		/** Text typed into an edge's label editor (empty clears the annotation). */
 		onannotate: (edgeId: string, annotation: string) => void;
 	}
 
@@ -51,13 +51,15 @@
 	// --- Inline label editor for an edge ---
 	let labelEdgeId = $state<string | null>(null);
 	let labelText = $state('');
+	/** The annotation the editor opened with, so an unchanged one isn't saved. */
+	let labelOriginal = '';
 	let labelPos = $state<Position | null>(null);
 	let labelInput = $state<HTMLInputElement | null>(null);
 
-	/** Open the label editor on an edge (once it is on the map). */
-	export function editEdgeLabel(id: string) {
+	/** Open the label editor on an edge (once it is on the map), starting from `text`. */
+	export function editEdgeLabel(id: string, text = '') {
 		labelEdgeId = id;
-		labelText = '';
+		labelText = labelOriginal = text;
 		placeLabelEditor();
 	}
 
@@ -75,7 +77,7 @@
 		const id = labelEdgeId;
 		const text = labelText.trim();
 		closeLabelEditor();
-		if (id && text) onannotate(id, text);
+		if (id && text !== labelOriginal.trim()) onannotate(id, text);
 	}
 
 	function onLabelKey(e: KeyboardEvent) {
@@ -88,8 +90,17 @@
 		}
 	}
 
+	// Focus (and select) the text when the editor opens, not each time it moves.
+	let focusedFor: string | null = null;
 	$effect(() => {
-		if (labelPos) labelInput?.focus();
+		if (!labelPos || !labelInput) {
+			focusedFor = null;
+			return;
+		}
+		if (focusedFor === labelEdgeId) return;
+		focusedFor = labelEdgeId;
+		labelInput.focus();
+		labelInput.select();
 	});
 
 	// Positions are remembered per browser so the map doesn't reshuffle between
@@ -312,7 +323,9 @@
 					'text-max-width': `${LABEL_MAX_WIDTH}px`,
 					'text-background-color': bg,
 					'text-background-opacity': 0.85,
-					'text-background-padding': '2px'
+					'text-background-padding': '2px',
+					// The annotation itself can be clicked (double-click edits it).
+					'text-events': 'yes'
 				}
 			},
 			{ selector: 'node.selected', style: { 'border-width': 3, 'border-color': accent, width: 34, height: 34 } },
@@ -351,6 +364,10 @@
 		});
 		cy.on('tap', 'edge', (e) => {
 			if (!e.target.data('label')) editEdgeLabel(e.target.id());
+		});
+		// Double-click a connection (or its annotation) to edit what it says.
+		cy.on('dbltap', 'edge', (e) => {
+			editEdgeLabel(e.target.id(), String(e.target.data('label') ?? ''));
 		});
 		cy.on('tap', (e) => {
 			// Cytoscape doesn't fire tap after a pan-drag, so this is a real click.

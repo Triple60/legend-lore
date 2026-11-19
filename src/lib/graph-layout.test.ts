@@ -80,3 +80,41 @@ describe('optimizeLayoutInBackground', () => {
 		]);
 	});
 });
+
+describe('nodes and annotations keep clear of lines', () => {
+	const ab = [node('a', -150, 0), node('b', 150, 0)];
+	const labelled = (w: number): LayoutEdge => ({ source: 'a', target: 'b', length: 300, labelWidth: w, labelHeight: 17 });
+
+	it('costs more to put a node on a line (or its name across one) than beside it', () => {
+		const on = layoutLoss([...ab, node('m', 0, 0)], [edge('a', 'b', 300)]);
+		const nameOnIt = layoutLoss([...ab, node('m', 0, -15)], [edge('a', 'b', 300)]);
+		const beside = layoutLoss([...ab, node('m', 0, 80)], [edge('a', 'b', 300)]);
+		expect(on).toBeGreaterThan(beside);
+		expect(nameOnIt).toBeGreaterThan(beside);
+	});
+
+	it('treats an annotation as a body nodes must keep clear of', () => {
+		// Just off the bare line, but on top of a wide annotation drawn there.
+		const nodes = [...ab, node('m', 0, 28)];
+		expect(layoutLoss(nodes, [labelled(160)])).toBeGreaterThan(layoutLoss(nodes, [labelled(0)]));
+	});
+
+	it('costs more for two annotations to sit on top of each other', () => {
+		const four = (dy: number) => [node('a', -150, 0), node('b', 150, 0), node('c', -150, dy), node('d', 150, dy)];
+		const edges: LayoutEdge[] = [labelled(160), { source: 'c', target: 'd', length: 300, labelWidth: 160, labelHeight: 17 }];
+		expect(layoutLoss(four(10), edges)).toBeGreaterThan(layoutLoss(four(120), edges));
+	});
+
+	it('moves a node off a line it was lying on', () => {
+		const nodes = [...ab, node('m', 0, 0), node('n', 0, 200)];
+		const edges = [labelled(120), edge('m', 'n', 110)];
+		const out = placed(nodes, optimizeLayout(nodes, edges, { seed: 11 }));
+		const [a, b, m] = out;
+		const vx = b.x - a.x;
+		const vy = b.y - a.y;
+		const t = ((m.x - a.x) * vx + (m.y - a.y) * vy) / (vx * vx + vy * vy);
+		const off = Math.abs((m.x - a.x) * vy - (m.y - a.y) * vx) / Math.hypot(vx, vy);
+		// Either well clear to the side, or beyond the line's ends.
+		expect(off > 40 || t < 0 || t > 1).toBe(true);
+	});
+});
