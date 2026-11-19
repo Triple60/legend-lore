@@ -38,7 +38,7 @@ export function createFakeSupabase() {
 	const channel = {
 		on: vi.fn().mockReturnThis(),
 		subscribe: vi.fn().mockReturnThis(),
-		track: vi.fn(),
+		track: vi.fn(async () => 'ok'),
 		presenceState: vi.fn(() => ({}))
 	};
 

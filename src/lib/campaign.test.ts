@@ -206,8 +206,67 @@ describe('updateType', () => {
 	});
 });
 
+describe('live connection', () => {
+	it('reconnects when the server closes the channel, then catches up on missed changes', async () => {
+		vi.useFakeTimers();
+		sb.client.channel.mockClear();
+		try {
+			const n = makeNode({ id: 'n', version: 1, notes: 'old' });
+			const s = storeWith({ nodes: [n] });
+			let onStatus: (status: string) => void = () => {};
+			sb.channel.subscribe.mockImplementation((cb: any) => {
+				onStatus = cb;
+				return sb.channel;
+			});
+			await (s as any).subscribe();
+			onStatus('SUBSCRIBED');
+			onStatus('CLOSED');
+			sb.respondWith((q) => ({ data: q.table === 'nodes' ? [{ ...n, version: 2, notes: 'missed' }] : [], error: null }));
+			await vi.advanceTimersByTimeAsync(2000);
+			expect(sb.client.channel).toHaveBeenCalledTimes(2);
+			onStatus('SUBSCRIBED');
+			await vi.advanceTimersByTimeAsync(0);
+			expect(s.nodes.n.notes).toBe('missed');
+			s.destroy();
+		} finally {
+			vi.useRealTimers();
+			sb.channel.subscribe.mockReset().mockReturnThis();
+		}
+	});
+
+	it('does not reconnect after the page closes it', async () => {
+		vi.useFakeTimers();
+		sb.client.channel.mockClear();
+		try {
+			const s = storeWith();
+			let onStatus: (status: string) => void = () => {};
+			sb.channel.subscribe.mockImplementation((cb: any) => {
+				onStatus = cb;
+				return sb.channel;
+			});
+			await (s as any).subscribe();
+			s.destroy();
+			onStatus('CLOSED');
+			await vi.advanceTimersByTimeAsync(5000);
+			expect(sb.client.channel).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+			sb.channel.subscribe.mockReset().mockReturnThis();
+		}
+	});
+});
+
 describe('edit locks', () => {
 	const other = (since: number, user_id = 'user-other') => ({ user_id, name: 'Other', editing: 'n', since });
+
+	it('takes the lock without waiting on the network', () => {
+		const s = storeWith();
+		(s as any).channel = { track: vi.fn(() => new Promise(() => {})) };
+		expect(s.beginEdit('n')).toBe(true);
+		expect(s.editing).toBe('n');
+		s.endEdit();
+		expect(s.editing).toBeNull();
+	});
 
 	it('lets you take a free lock', async () => {
 		const s = storeWith();

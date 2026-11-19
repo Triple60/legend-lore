@@ -163,6 +163,35 @@ describe('NodePanel', () => {
 		expect(screen.queryByRole('textbox', { name: 'Notes' })).not.toBeInTheDocument();
 	});
 
+	it('refuses to overwrite a change someone else saved while the editor was open, keeping the draft', async () => {
+		const updateNode = vi.spyOn(store, 'updateNode').mockRejectedValue(new Error('Someone else changed this'));
+		const { user } = setup();
+		await user.click(screen.getByRole('group', { name: 'Edit notes' }));
+		await user.type(screen.getByRole('textbox', { name: 'Notes' }), ' Mine.');
+		// Their save arrives over the live connection.
+		store.nodes.strahd = { ...strahd, version: strahd.version + 1, notes: 'Theirs.' };
+		await tick();
+		expect(screen.getByText(/saved a change to this node while you were editing/)).toBeInTheDocument();
+		expect(screen.getByRole('textbox', { name: 'Notes' })).toHaveValue(`${strahd.notes} Mine.`);
+		await user.click(screen.getByRole('button', { name: 'Save' }));
+		// The save is checked against the version the editor opened with, not the newer one.
+		expect(updateNode.mock.calls[0][0].version).toBe(strahd.version);
+		expect(screen.getByRole('textbox', { name: 'Notes' })).toHaveValue(`${strahd.notes} Mine.`);
+	});
+
+	it('opens at once and keeps what is typed when the connection is stalled (lock never confirmed)', async () => {
+		// A live connection that never answers, as when it has dropped.
+		(store as any).channel = { track: vi.fn(() => new Promise(() => {})) };
+		const { user } = setup();
+		// A double-click: the second click lands while the first is still opening.
+		await user.dblClick(screen.getByRole('group', { name: 'Edit notes' }));
+		const box = screen.getByRole('textbox', { name: 'Notes' });
+		await user.type(box, ' Typed.');
+		await new Promise((r) => setTimeout(r, 50));
+		await tick();
+		expect(screen.getByRole('textbox', { name: 'Notes' })).toHaveValue(`${strahd.notes} Typed.`);
+	});
+
 	it('still closes the editor when the edit is ended on purpose (Esc on the page)', async () => {
 		const { user } = setup();
 		await user.click(screen.getByRole('group', { name: 'Edit notes' }));

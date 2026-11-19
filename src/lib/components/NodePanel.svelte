@@ -4,6 +4,7 @@
 	import { buildNameIndex, renderNotes } from '#lib/markdown.ts';
 	import type { LoreEdge, Revision } from '#lib/types.ts';
 	import { autogrow } from '#lib/ui/autogrow.ts';
+	import { debug, short } from '#lib/debug.svelte.ts';
 	import { tick } from 'svelte';
 
 	interface Props {
@@ -34,7 +35,7 @@
 	let lastId = '';
 	$effect(() => {
 		if (nodeId !== lastId) {
-			if (lastId && store.editing === lastId) store.endEdit();
+			if (lastId && store.editing === lastId) store.endEdit('(switched to another node)');
 			if (lastId) store.lostLockTo = null;
 			lastId = nodeId;
 			error = null;
@@ -68,7 +69,35 @@
 	 */
 	const open = $derived(isEditing || store.lostLockTo ? section : null);
 	$effect(() => {
-		if (section && !isEditing && !store.lostLockTo) section = null;
+		if (section && !isEditing && !store.lostLockTo) {
+			debug.log('editor closed', `${section}: the edit was ended elsewhere ${draftSize()}`);
+			section = null;
+		}
+	});
+
+	// --- Debug log (see debug.svelte.ts): never what's typed, only how much ---
+	const draftSize = () => `(draft: ${section === 'notes' ? draftNotes.length : draftName.length} chars)`;
+	$effect(() => {
+		debug.log('node panel opened', short(nodeId));
+		return () => debug.log('node panel closed', `${short(nodeId)}${section ? ` with ${section} editor open ${draftSize()}` : ''}`);
+	});
+	$effect(() => {
+		if (!node) debug.log('node panel', `${short(nodeId)} is missing from the data`);
+	});
+	let lastTypingLog = 0;
+	$effect(() => {
+		const size = open === 'notes' ? draftNotes.length : open === 'details' ? draftName.length : -1;
+		if (size < 0 || performance.now() - lastTypingLog < 2000) return;
+		lastTypingLog = performance.now();
+		debug.log('typing', `${open}: ${size} chars`);
+	});
+
+	/** The node's version when the open editor was opened. */
+	let baseVersion = $state(0);
+	/** Someone saved this node while it was open here. */
+	const changedUnderneath = $derived(Boolean(open && node && node.version !== baseVersion));
+	$effect(() => {
+		if (changedUnderneath) debug.log('changed while editing', `v${baseVersion} → v${node.version} by ${short(node.updated_by)}`);
 	});
 
 	let draftName = $state('');
@@ -83,11 +112,12 @@
 
 	async function openSection(which: Section) {
 		if (open === which || saving) return;
-		if (!isEditing && !(await store.beginEdit(nodeId))) {
+		if (!isEditing && !store.beginEdit(nodeId)) {
 			error = `${store.lockHolder(nodeId)?.name ?? 'Someone'} is editing this.`;
 			return;
 		}
 		error = null;
+		baseVersion = node.version;
 		if (which === 'details') {
 			draftName = node.name;
 			draftType = node.type_id;
@@ -98,6 +128,7 @@
 			draftNotes = node.notes;
 		}
 		section = which;
+		debug.log('editor opened', which);
 		await tick();
 		if (which === 'details') nameInput?.focus();
 		else {
@@ -106,11 +137,12 @@
 		}
 	}
 
-	async function discard() {
+	async function discard(why = '(discarded)') {
+		if (section) debug.log('editor closed', `${section} ${why} ${draftSize()}`);
 		section = null;
 		error = null;
 		store.lostLockTo = null;
-		await store.endEdit();
+		store.endEdit(why);
 	}
 
 	async function saveSection() {
@@ -125,15 +157,18 @@
 						tags: splitList(draftTags)
 					}
 				: { notes: draftNotes };
-		if (await run(() => store.updateNode(node, patch))) await discard();
+		// Save against the version the editor opened with, so a change someone
+		// else saved meanwhile is refused instead of silently overwritten.
+		if (await run(() => store.updateNode({ ...node, version: baseVersion }, patch))) await discard('(saved)');
 	}
+
 
 	/** In an open editor: Esc discards, Ctrl/Cmd+Enter saves. */
 	function onEditorKey(e: KeyboardEvent) {
 		if (e.key === 'Escape') {
 			e.preventDefault();
 			e.stopPropagation();
-			discard();
+			discard('(Esc in the editor)');
 		} else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
 			e.preventDefault();
 			saveSection();
@@ -233,6 +268,13 @@
 				somewhere safe. If the other edit is saved first, yours will be refused rather than overwrite it.
 			</p>
 		{/if}
+		{#if changedUnderneath}
+			<p class="error" role="status">
+				{store.nameOf(node.updated_by)} saved a change to this node while you were editing, so saving here would
+				overwrite it and will be refused. Your text is still here: copy it somewhere safe, then choose Discard
+				changes to see the latest version.
+			</p>
+		{/if}
 	{/snippet}
 	{#if holder}<p class="lock">🔒 {holder.name} is editing this…</p>{/if}
 	{#if error}<p class="error">{error}</p>{/if}
@@ -276,7 +318,7 @@
 			</label>
 			<div class="editor-actions">
 				<button type="submit" disabled={saving || !draftName.trim()}>{saving ? 'Saving…' : 'Save'}</button>
-				<button type="button" class="ghost" onclick={discard} disabled={saving}>Discard changes</button>
+				<button type="button" class="ghost" onclick={() => discard('(Discard changes button)')} disabled={saving}>Discard changes</button>
 			</div>
 		</form>
 	{:else}
@@ -348,7 +390,7 @@
 				></textarea>
 				<div class="editor-actions">
 					<button onclick={saveSection} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
-					<button class="ghost" onclick={discard} disabled={saving}>Discard changes</button>
+					<button class="ghost" onclick={() => discard('(Discard changes button)')} disabled={saving}>Discard changes</button>
 				</div>
 			</div>
 		{:else}

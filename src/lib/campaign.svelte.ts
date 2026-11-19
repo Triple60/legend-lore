@@ -1,4 +1,5 @@
 import type { RealtimeChannel } from '@supabase/supabase-js';
+import { debug, short } from './debug.svelte';
 import { supabase } from './supabase';
 import type { Campaign, LoreEdge, LoreNode, NodeType, Profile, Revision } from './types';
 
@@ -93,6 +94,7 @@ export class CampaignStore {
 	}
 
 	async load() {
+		debug.log('store: loading', `campaign=${short(this.id)} tab=${short(this.presenceKey)}`);
 		this.loading = true;
 		try {
 			const [campaign, types, nodes, edges, profiles] = await Promise.all([
@@ -110,9 +112,11 @@ export class CampaignStore {
 			this.nodes = byId(nodes.data as LoreNode[]);
 			this.edges = byId(edges.data as LoreEdge[]);
 			this.profiles = byId(profiles.data as Profile[]);
+			debug.log('store: loaded', `${Object.keys(this.nodes).length} nodes`);
 			await this.subscribe();
 		} catch (e) {
 			this.error = (e as Error).message;
+			debug.log('store: load failed', this.error);
 		} finally {
 			this.loading = false;
 		}
@@ -150,16 +154,66 @@ export class CampaignStore {
 				}
 			})
 			.on('presence', { event: 'sync' }, () => this.onPresenceSync())
-			.subscribe((status) => {
-				if (status === 'SUBSCRIBED') this.trackPresence();
+			.subscribe((status, err) => {
+				debug.log('live connection', `${status}${err ? ` ${err.message}` : ''}`);
+				if (status === 'SUBSCRIBED') {
+					this.trackPresence();
+					if (this.reconnecting) {
+						this.reconnecting = false;
+						this.catchUp();
+					}
+				}
+				// Supabase retries a channel that errors or times out by itself, but
+				// one the server closes (e.g. its login token expired while a laptop
+				// slept) stays closed. Without this, changes from others would stop
+				// arriving, with nothing on screen to say so.
+				if (status === 'CLOSED') this.reconnectSoon(channel);
 			});
 
 		this.channel = channel;
 	}
 
+	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+	private reconnecting = false;
+
+	private reconnectSoon(closed: RealtimeChannel) {
+		if (this.destroyed || this.channel !== closed || this.reconnectTimer) return;
+		debug.log('live connection', 'closed by the server; reconnecting in 2 s');
+		this.reconnectTimer = setTimeout(async () => {
+			this.reconnectTimer = null;
+			if (this.destroyed || this.channel !== closed) return;
+			this.channel = null;
+			this.reconnecting = true;
+			await supabase.removeChannel(closed);
+			await this.subscribe();
+		}, 2000);
+	}
+
+	/** After reconnecting: fetch anything that changed while the connection was down. */
+	private async catchUp() {
+		try {
+			const [types, nodes, edges] = await Promise.all([
+				supabase.from('node_types').select('*').eq('campaign_id', this.id),
+				supabase.from('nodes').select('*').eq('campaign_id', this.id),
+				supabase.from('edges').select('*').eq('campaign_id', this.id)
+			]);
+			for (const r of [types, nodes, edges]) fail(r.error);
+			this.types = byId(types.data as NodeType[]);
+			for (const n of nodes.data as LoreNode[]) this.mergeNode(n);
+			for (const e of edges.data as LoreEdge[]) this.mergeEdge(e);
+			debug.log('live connection', 'caught up after reconnecting');
+		} catch (e) {
+			debug.log('live connection', `catching up failed: ${(e as Error).message}`);
+		}
+	}
+
 	// Ignore stale realtime events that arrive after our own newer write.
 	private mergeNode(n: LoreNode) {
 		const cur = this.nodes[n.id];
+		if (cur?.version !== n.version) {
+			const editing = n.id === this.editing ? ' ← the node being edited' : '';
+			debug.log('node change', `${short(n.id)} v${n.version} (had v${cur?.version ?? '-'})${editing}`);
+		}
 		if (!cur || n.version >= cur.version) this.nodes[n.id] = n;
 	}
 
@@ -168,6 +222,12 @@ export class CampaignStore {
 		if (!cur || e.version >= cur.version) this.edges[e.id] = e;
 	}
 
+	/**
+	 * Tell everyone what this tab is editing. Fire-and-forget: on a slow or
+	 * stalled connection the server's reply can take seconds (up to the
+	 * client's 10 s timeout), and nothing should wait on it. A clash with
+	 * someone else is caught when their presence syncs (onPresenceSync).
+	 */
 	private trackPresence() {
 		const meta: PresenceMeta = {
 			user_id: this.me.id,
@@ -175,12 +235,23 @@ export class CampaignStore {
 			editing: this.editing,
 			since: this.editingSince
 		};
-		return this.channel?.track(meta);
+		this.channel
+			?.track(meta)
+			.then((reply) => {
+				if (reply !== 'ok') debug.log('presence update not confirmed', String(reply));
+			})
+			.catch((e) => debug.log('presence update failed', String(e)));
 	}
 
 	private onPresenceSync() {
 		const state = this.channel?.presenceState<PresenceMeta>() ?? {};
 		this.online = Object.entries(state).flatMap(([key, metas]) => metas.map((m) => ({ ...m, key })));
+		debug.log(
+			'presence',
+			this.online
+				.map((p) => `${p.key === this.presenceKey ? 'this tab' : `${p.name}/${short(p.key)}`}: ${p.editing ? `editing ${short(p.editing)} since ${p.since}` : 'idle'}`)
+				.join('; ') || 'nobody'
+		);
 
 		// If two people grabbed the same node at once, the earlier one keeps it.
 		// The editor stays open with its text (see NodePanel), so nothing typed is
@@ -188,6 +259,7 @@ export class CampaignStore {
 		if (this.editing) {
 			const winner = this.lockHolder(this.editing);
 			if (winner) {
+				debug.log('lock lost', `to ${winner.name}/${short(winner.key)} (since ${winner.since}, ours ${this.editingSince})`);
 				this.lostLockTo = winner.user_id === this.me.id ? 'You, in another tab or device,' : winner.name;
 				this.editing = null;
 				this.trackPresence();
@@ -208,19 +280,28 @@ export class CampaignStore {
 		return p.user_id === this.me.id && p.since === this.editingSince;
 	}
 
-	async beginEdit(nodeId: string): Promise<boolean> {
-		if (this.lockHolder(nodeId)) return false;
+	/**
+	 * Take the edit lock on a node, if nobody else holds it. Returns at once:
+	 * it never waits on the network, so an editor can open (and be typed in)
+	 * immediately, and nothing resumes later to disturb it.
+	 */
+	beginEdit(nodeId: string): boolean {
+		const holder = this.lockHolder(nodeId);
+		debug.log('begin edit', `${short(nodeId)}${holder ? ` refused: ${holder.name} holds it` : ''}`);
+		if (holder) return false;
 		this.lostLockTo = null;
 		this.editing = nodeId;
 		this.editingSince = Date.now();
-		await this.trackPresence();
+		this.trackPresence();
 		return true;
 	}
 
-	async endEdit() {
+	/** Give up the lock. `why` is only for the debug log. */
+	endEdit(why = '') {
+		debug.log('end edit', `${short(this.editing)} ${why}`);
 		this.editing = null;
 		this.editingSince = 0;
-		await this.trackPresence();
+		this.trackPresence();
 	}
 
 	// --- Nodes -------------------------------------------------------------
@@ -343,7 +424,9 @@ export class CampaignStore {
 	}
 
 	destroy() {
+		debug.log('store: closed', short(this.id));
 		this.destroyed = true;
+		if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
 		if (this.channel) supabase.removeChannel(this.channel);
 		this.channel = null;
 	}
