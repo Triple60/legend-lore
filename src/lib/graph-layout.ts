@@ -466,7 +466,7 @@ function anneal(m: Model, seed: number, steps: number, budget: number) {
 export function optimizeLayout(
 	nodes: LayoutNode[],
 	edges: LayoutEdge[],
-	{ weights, iterations, restarts, seed = 1, timeBudget = 1200 }: LayoutOptions = {}
+	{ weights, iterations, restarts, seed = 1, timeBudget = 5000 }: LayoutOptions = {}
 ): Map<string, { x: number; y: number }> {
 	const m = build(nodes, edges, weights);
 	const out = new Map<string, { x: number; y: number }>();
